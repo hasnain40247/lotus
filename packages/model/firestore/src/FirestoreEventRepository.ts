@@ -1,6 +1,6 @@
 import { Effect, Layer, Schema } from "effect"
 import type { Firestore } from "@google-cloud/firestore"
-import { FirestoreClient } from "@gco/infra-gcp"
+import { FirestoreClient, GoogleIdentity } from "@gco/infra-gcp"
 import {
   EventRepository,
   type IEventRepository,
@@ -29,7 +29,11 @@ function decodeStoredEvent(
 }
 
 class FirestoreEventRepositoryImpl implements IEventRepository {
-  constructor(private readonly db: Firestore) {}
+  private readonly sessions: FirebaseFirestore.CollectionReference
+
+  constructor(db: Firestore, userId: string) {
+    this.sessions = db.collection("users").doc(userId).collection("sessions")
+  }
 
   /**
    * Append events atomically.
@@ -60,8 +64,8 @@ class FirestoreEventRepositoryImpl implements IEventRepository {
       Effect.flatMap((encodedEvents) =>
         Effect.tryPromise({
           try: () =>
-            this.db.runTransaction(async (tx) => {
-              const sessionRef = this.db.collection("sessions").doc(aggregateID)
+            this.sessions.firestore.runTransaction(async (tx) => {
+              const sessionRef = this.sessions.doc(aggregateID)
               const sessionSnap = await tx.get(sessionRef)
 
               const currentSeq: number =
@@ -70,6 +74,7 @@ class FirestoreEventRepositoryImpl implements IEventRepository {
               const eventsRef = sessionRef.collection("events")
 
               let seq = currentSeq
+              let lastCompactionSeq: number | undefined
               for (const encoded of encodedEvents) {
                 seq += 1
                 const { type, ...data } = encoded as { type: string } & Record<string, unknown>
@@ -81,9 +86,16 @@ class FirestoreEventRepositoryImpl implements IEventRepository {
                 // Use seq as doc ID (zero-padded for lexicographic ordering)
                 const docID = String(seq).padStart(20, "0")
                 tx.set(eventsRef.doc(docID), storedEvent)
+                if (type === "session.next.compaction.ended") {
+                  lastCompactionSeq = seq
+                }
               }
 
-              tx.update(sessionRef, { eventSeq: seq })
+              if (lastCompactionSeq !== undefined) {
+                tx.update(sessionRef, { eventSeq: seq, lastCompactionSeq })
+              } else {
+                tx.update(sessionRef, { eventSeq: seq })
+              }
             }),
           catch: (e) =>
             new Error(`FirestoreEventRepository.append failed: ${e}`),
@@ -99,8 +111,7 @@ class FirestoreEventRepositoryImpl implements IEventRepository {
   ): Effect.Effect<SessionEvent.DurableEvent[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        const eventsRef = this.db
-          .collection("sessions")
+        const eventsRef = this.sessions
           .doc(aggregateID)
           .collection("events")
 
@@ -125,8 +136,7 @@ class FirestoreEventRepositoryImpl implements IEventRepository {
   ): Effect.Effect<SessionEvent.DurableEvent[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        const sessionSnap = await this.db
-          .collection("sessions")
+        const sessionSnap = await this.sessions
           .doc(aggregateID)
           .get()
 
@@ -146,11 +156,12 @@ class FirestoreEventRepositoryImpl implements IEventRepository {
 export const FirestoreEventRepositoryLive: Layer.Layer<
   EventRepository,
   never,
-  FirestoreClient
+  FirestoreClient | GoogleIdentity
 > = Layer.effect(
   EventRepository,
   Effect.gen(function* () {
     const { db } = yield* FirestoreClient
-    return new FirestoreEventRepositoryImpl(db)
+    const { email } = yield* GoogleIdentity
+    return new FirestoreEventRepositoryImpl(db, email)
   }),
 )

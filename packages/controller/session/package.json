@@ -17,7 +17,8 @@
     "@gco/model-domain": "workspace:*",
     "@gco/llm": "workspace:*",
     "@gco/infra-gcp": "workspace:*",
-    "@gco/controller-tool": "workspace:*"
+    "@gco/controller-tool": "workspace:*",
+    "@gco/controller-agent": "workspace:*"
   },
   "devDependencies": {
     "@tsconfig/bun": "^1.0.7",

@@ -1,6 +1,6 @@
 import { Effect, Layer, Schema } from "effect"
 import type { Firestore } from "@google-cloud/firestore"
-import { FirestoreClient } from "@gco/infra-gcp"
+import { FirestoreClient, GoogleIdentity } from "@gco/infra-gcp"
 import {
   CredentialRepository,
   type ICredentialRepository,
@@ -45,12 +45,16 @@ function toCredentialInfo(stored: StoredCredential): Effect.Effect<CredentialInf
 }
 
 class FirestoreCredentialRepositoryImpl implements ICredentialRepository {
-  constructor(private readonly db: Firestore) {}
+  private readonly credentials: FirebaseFirestore.CollectionReference
+
+  constructor(db: Firestore, userId: string) {
+    this.credentials = db.collection("users").doc(userId).collection("credentials")
+  }
 
   all(): Effect.Effect<CredentialInfo[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db.collection("credentials").get()
+        const snap = await this.credentials.get()
         return snap.docs.map((d) => d.data() as StoredCredential)
       },
       catch: (e) =>
@@ -65,8 +69,7 @@ class FirestoreCredentialRepositoryImpl implements ICredentialRepository {
   ): Effect.Effect<CredentialInfo[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db
-          .collection("credentials")
+        const snap = await this.credentials
           .where("integrationID", "==", integrationID)
           .get()
         return snap.docs.map((d) => d.data() as StoredCredential)
@@ -81,7 +84,7 @@ class FirestoreCredentialRepositoryImpl implements ICredentialRepository {
   get(id: Credential.ID): Effect.Effect<CredentialInfo | undefined, Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db.collection("credentials").doc(id).get()
+        const snap = await this.credentials.doc(id).get()
         if (!snap.exists) return undefined
         return snap.data() as StoredCredential
       },
@@ -116,8 +119,7 @@ class FirestoreCredentialRepositoryImpl implements ICredentialRepository {
 
         return Effect.tryPromise({
           try: () =>
-            this.db
-              .collection("credentials")
+            this.credentials
               .doc(id)
               .set(stored as unknown as Record<string, unknown>),
           catch: (e) =>
@@ -153,7 +155,7 @@ class FirestoreCredentialRepositoryImpl implements ICredentialRepository {
           patch["value"] = encodedValue
           return Effect.tryPromise({
             try: () =>
-              this.db.collection("credentials").doc(id).update(patch),
+              this.credentials.doc(id).update(patch),
             catch: (e) =>
               new Error(
                 `FirestoreCredentialRepository.update failed: ${e}`,
@@ -165,7 +167,7 @@ class FirestoreCredentialRepositoryImpl implements ICredentialRepository {
     }
 
     return Effect.tryPromise({
-      try: () => this.db.collection("credentials").doc(id).update(patch),
+      try: () => this.credentials.doc(id).update(patch),
       catch: (e) =>
         new Error(`FirestoreCredentialRepository.update failed: ${e}`),
     }).pipe(Effect.asVoid)
@@ -173,7 +175,7 @@ class FirestoreCredentialRepositoryImpl implements ICredentialRepository {
 
   remove(id: Credential.ID): Effect.Effect<void, Error> {
     return Effect.tryPromise({
-      try: () => this.db.collection("credentials").doc(id).delete(),
+      try: () => this.credentials.doc(id).delete(),
       catch: (e) =>
         new Error(`FirestoreCredentialRepository.remove failed: ${e}`),
     }).pipe(Effect.asVoid)
@@ -183,11 +185,12 @@ class FirestoreCredentialRepositoryImpl implements ICredentialRepository {
 export const FirestoreCredentialRepositoryLive: Layer.Layer<
   CredentialRepository,
   never,
-  FirestoreClient
+  FirestoreClient | GoogleIdentity
 > = Layer.effect(
   CredentialRepository,
   Effect.gen(function* () {
     const { db } = yield* FirestoreClient
-    return new FirestoreCredentialRepositoryImpl(db)
+    const { email } = yield* GoogleIdentity
+    return new FirestoreCredentialRepositoryImpl(db, email)
   }),
 )

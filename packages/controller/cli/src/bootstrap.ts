@@ -9,7 +9,7 @@
 import { Effect, Layer } from "effect"
 
 // GCP infrastructure
-import { GcpConfig, FirestoreClient, GCSStorage, CloudLogger } from "@gco/infra-gcp"
+import { GcpConfig, FirestoreClient, GCSStorage, CloudLogger, GoogleIdentity } from "@gco/infra-gcp"
 
 // Model layer
 import { FirestoreModelLayer } from "@gco/model-firestore"
@@ -108,6 +108,7 @@ export const ProductionLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
   FirestoreClient.layer,
   GCSStorage.layer,
   CloudLogger.layer,
+  GoogleIdentity.layer,
 
   // Model layer (Firestore-backed)
   FirestoreModelLayer,
@@ -136,8 +137,13 @@ export const ProductionLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Stub GCSStorage for TestLayer (no-op implementation)
+// Stubs for TestLayer (no-op / fixed implementations)
 // ---------------------------------------------------------------------------
+
+const stubGoogleIdentityLayer: Layer.Layer<GoogleIdentity> = Layer.succeed(
+  GoogleIdentity,
+  GoogleIdentity.of({ email: "test@example.com", name: "Test User" }),
+)
 
 const stubGCSStorageLayer: Layer.Layer<GCSStorage> = Layer.succeed(
   GCSStorage,
@@ -161,6 +167,7 @@ const stubGCSStorageLayer: Layer.Layer<GCSStorage> = Layer.succeed(
 export const TestLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
   TestModelLayer,
   stubGCSStorageLayer,
+  stubGoogleIdentityLayer,
 
   // LLM client (still uses real HTTP but with a fake model resolver)
   llmClientLayer,

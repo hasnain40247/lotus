@@ -1,5 +1,5 @@
 import { Layer } from "effect"
-import { FirestoreClient } from "@gco/infra-gcp"
+import { FirestoreClient, GoogleIdentity } from "@gco/infra-gcp"
 import {
   SessionRepository,
   EventRepository,
@@ -55,7 +55,7 @@ export const FirestoreModelLayer: Layer.Layer<
   | WorkspaceRepository
   | CredentialRepository,
   never,
-  FirestoreClient
+  FirestoreClient | GoogleIdentity
 > = Layer.mergeAll(
   FirestoreSessionRepositoryLive,
   FirestoreEventRepositoryLive,

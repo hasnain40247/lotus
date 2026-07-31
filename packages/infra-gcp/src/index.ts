@@ -34,3 +34,7 @@ export type {
   CloudLoggerShape,
   LogSeverity,
 } from "./logging/CloudLoggingExporter"
+
+// Google Identity (ADC-based user auth)
+export { GoogleIdentity } from "./auth/GoogleIdentity"
+export type { UserIdentity } from "./auth/GoogleIdentity"

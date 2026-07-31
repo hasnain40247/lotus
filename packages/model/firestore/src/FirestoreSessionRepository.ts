@@ -1,6 +1,6 @@
 import { DateTime, Effect, Layer, Schema } from "effect"
 import type { Firestore } from "@google-cloud/firestore"
-import { FirestoreClient } from "@gco/infra-gcp"
+import { FirestoreClient, GoogleIdentity } from "@gco/infra-gcp"
 import {
   SessionRepository,
   type ISessionRepository,
@@ -51,12 +51,16 @@ function encodeSessionPatch(
 }
 
 class FirestoreSessionRepositoryImpl implements ISessionRepository {
-  constructor(private readonly db: Firestore) {}
+  private readonly sessions: FirebaseFirestore.CollectionReference
+
+  constructor(db: Firestore, userId: string) {
+    this.sessions = db.collection("users").doc(userId).collection("sessions")
+  }
 
   get(id: Session.ID): Effect.Effect<Session.Info | undefined, Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db.collection("sessions").doc(id).get()
+        const snap = await this.sessions.doc(id).get()
         if (!snap.exists) return undefined
         return snap.data() as unknown
       },
@@ -78,17 +82,12 @@ class FirestoreSessionRepositoryImpl implements ISessionRepository {
   ): Effect.Effect<Session.Info[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        let q = this.db
-          .collection("sessions")
+        let q = this.sessions
           .where("projectID", "==", projectID)
           .orderBy("time.created", "desc")
 
         if (anchor?.cursor) {
-          // cursor is the session document ID; fetch the snapshot for startAfter
-          const cursorSnap = await this.db
-            .collection("sessions")
-            .doc(anchor.cursor)
-            .get()
+          const cursorSnap = await this.sessions.doc(anchor.cursor).get()
           if (cursorSnap.exists) {
             q = q.startAfter(cursorSnap)
           }
@@ -120,7 +119,7 @@ class FirestoreSessionRepositoryImpl implements ISessionRepository {
     }).pipe(
       Effect.flatMap((encoded) =>
         Effect.tryPromise({
-          try: () => this.db.collection("sessions").doc(info.id).set(encoded as object),
+          try: () => this.sessions.doc(info.id).set(encoded as object),
           catch: (e) => new Error(`FirestoreSessionRepository.create failed: ${e}`),
         }),
       ),
@@ -129,18 +128,10 @@ class FirestoreSessionRepositoryImpl implements ISessionRepository {
   }
 
   update(id: Session.ID, patch: Partial<Session.Info>): Effect.Effect<void, Error> {
-    // Encode the patch: convert any DateTime values to epoch-millis numbers.
-    // We do this by running the full codec on a dummy complete record merged
-    // with the patch, then extracting only the patched keys. For simplicity,
-    // we convert the patch object directly — DateTime instances expose
-    // `DateTime.toEpochMillis()`, and all other values are plain JSON.
     return Effect.tryPromise({
       try: () => {
         const encoded = encodeSessionPatch(patch)
-        return this.db
-          .collection("sessions")
-          .doc(id)
-          .update(encoded)
+        return this.sessions.doc(id).update(encoded)
       },
       catch: (e) => new Error(`FirestoreSessionRepository.update failed: ${e}`),
     }).pipe(Effect.asVoid)
@@ -148,11 +139,7 @@ class FirestoreSessionRepositoryImpl implements ISessionRepository {
 
   archive(id: Session.ID): Effect.Effect<void, Error> {
     return Effect.tryPromise({
-      try: () =>
-        this.db
-          .collection("sessions")
-          .doc(id)
-          .update({ "time.archived": Date.now() }),
+      try: () => this.sessions.doc(id).update({ "time.archived": Date.now() }),
       catch: (e) => new Error(`FirestoreSessionRepository.archive failed: ${e}`),
     }).pipe(Effect.asVoid)
   }
@@ -161,11 +148,12 @@ class FirestoreSessionRepositoryImpl implements ISessionRepository {
 export const FirestoreSessionRepositoryLive: Layer.Layer<
   SessionRepository,
   never,
-  FirestoreClient
+  FirestoreClient | GoogleIdentity
 > = Layer.effect(
   SessionRepository,
   Effect.gen(function* () {
     const { db } = yield* FirestoreClient
-    return new FirestoreSessionRepositoryImpl(db)
+    const { email } = yield* GoogleIdentity
+    return new FirestoreSessionRepositoryImpl(db, email)
   }),
 )

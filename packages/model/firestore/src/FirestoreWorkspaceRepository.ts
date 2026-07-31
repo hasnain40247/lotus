@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect"
 import type { Firestore, DocumentData } from "@google-cloud/firestore"
-import { FirestoreClient } from "@gco/infra-gcp"
+import { FirestoreClient, GoogleIdentity } from "@gco/infra-gcp"
 import {
   WorkspaceRepository,
   type IWorkspaceRepository,
@@ -8,23 +8,21 @@ import {
 } from "@gco/model-domain"
 import type { Workspace } from "@gco/schema"
 
-/**
- * `WorkspaceInfo` is defined entirely in the domain layer — there is no
- * `@gco/schema` codec for it, so we read/write the plain object directly.
- * Firestore stores it as flat JSON; the shape is simple enough (no branded
- * types that need codec transformations) to cast directly.
- */
 function toWorkspaceInfo(raw: DocumentData): WorkspaceInfo {
   return raw as WorkspaceInfo
 }
 
 class FirestoreWorkspaceRepositoryImpl implements IWorkspaceRepository {
-  constructor(private readonly db: Firestore) {}
+  private readonly workspaces: FirebaseFirestore.CollectionReference
+
+  constructor(db: Firestore, userId: string) {
+    this.workspaces = db.collection("users").doc(userId).collection("workspaces")
+  }
 
   get(id: Workspace.ID): Effect.Effect<WorkspaceInfo | undefined, Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db.collection("workspaces").doc(id).get()
+        const snap = await this.workspaces.doc(id).get()
         if (!snap.exists) return undefined
         return toWorkspaceInfo(snap.data()!)
       },
@@ -36,7 +34,7 @@ class FirestoreWorkspaceRepositoryImpl implements IWorkspaceRepository {
   list(): Effect.Effect<WorkspaceInfo[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db.collection("workspaces").get()
+        const snap = await this.workspaces.get()
         return snap.docs.map((d) => toWorkspaceInfo(d.data()))
       },
       catch: (e) =>
@@ -47,8 +45,8 @@ class FirestoreWorkspaceRepositoryImpl implements IWorkspaceRepository {
   create(info: WorkspaceInfo): Effect.Effect<void, Error> {
     return Effect.tryPromise({
       try: async () => {
-        const ref = this.db.collection("workspaces").doc(info.id)
-        await this.db.runTransaction(async (tx) => {
+        const ref = this.workspaces.doc(info.id)
+        await this.workspaces.firestore.runTransaction(async (tx) => {
           const snap = await tx.get(ref)
           if (!snap.exists) {
             tx.set(ref, info as unknown as Record<string, unknown>)
@@ -65,11 +63,7 @@ class FirestoreWorkspaceRepositoryImpl implements IWorkspaceRepository {
     patch: Partial<WorkspaceInfo>,
   ): Effect.Effect<void, Error> {
     return Effect.tryPromise({
-      try: () =>
-        this.db
-          .collection("workspaces")
-          .doc(id)
-          .update(patch as Record<string, unknown>),
+      try: () => this.workspaces.doc(id).update(patch as Record<string, unknown>),
       catch: (e) =>
         new Error(`FirestoreWorkspaceRepository.update failed: ${e}`),
     }).pipe(Effect.asVoid)
@@ -77,7 +71,7 @@ class FirestoreWorkspaceRepositoryImpl implements IWorkspaceRepository {
 
   remove(id: Workspace.ID): Effect.Effect<void, Error> {
     return Effect.tryPromise({
-      try: () => this.db.collection("workspaces").doc(id).delete(),
+      try: () => this.workspaces.doc(id).delete(),
       catch: (e) =>
         new Error(`FirestoreWorkspaceRepository.remove failed: ${e}`),
     }).pipe(Effect.asVoid)
@@ -87,11 +81,12 @@ class FirestoreWorkspaceRepositoryImpl implements IWorkspaceRepository {
 export const FirestoreWorkspaceRepositoryLive: Layer.Layer<
   WorkspaceRepository,
   never,
-  FirestoreClient
+  FirestoreClient | GoogleIdentity
 > = Layer.effect(
   WorkspaceRepository,
   Effect.gen(function* () {
     const { db } = yield* FirestoreClient
-    return new FirestoreWorkspaceRepositoryImpl(db)
+    const { email } = yield* GoogleIdentity
+    return new FirestoreWorkspaceRepositoryImpl(db, email)
   }),
 )

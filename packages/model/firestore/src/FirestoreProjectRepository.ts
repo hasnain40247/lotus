@@ -1,6 +1,6 @@
 import { Effect, Layer, Schema } from "effect"
 import type { Firestore } from "@google-cloud/firestore"
-import { FirestoreClient } from "@gco/infra-gcp"
+import { FirestoreClient, GoogleIdentity } from "@gco/infra-gcp"
 import {
   ProjectRepository,
   type IProjectRepository,
@@ -11,12 +11,16 @@ const decodeInfoSync = Schema.decodeUnknownSync(Project.Info)
 const encodeInfoSync = Schema.encodeSync(Project.Info)
 
 class FirestoreProjectRepositoryImpl implements IProjectRepository {
-  constructor(private readonly db: Firestore) {}
+  private readonly projects: FirebaseFirestore.CollectionReference
+
+  constructor(db: Firestore, userId: string) {
+    this.projects = db.collection("users").doc(userId).collection("projects")
+  }
 
   get(id: Project.ID): Effect.Effect<Project.Info | undefined, Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db.collection("projects").doc(id).get()
+        const snap = await this.projects.doc(id).get()
         if (!snap.exists) return undefined
         return snap.data() as unknown
       },
@@ -38,8 +42,7 @@ class FirestoreProjectRepositoryImpl implements IProjectRepository {
   ): Effect.Effect<Project.Info | undefined, Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db
-          .collection("projects")
+        const snap = await this.projects
           .where("worktree", "==", worktree)
           .limit(1)
           .get()
@@ -63,7 +66,7 @@ class FirestoreProjectRepositoryImpl implements IProjectRepository {
   list(): Effect.Effect<Project.Info[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db.collection("projects").get()
+        const snap = await this.projects.get()
         return snap.docs.map((d) => d.data())
       },
       catch: (e) =>
@@ -86,11 +89,10 @@ class FirestoreProjectRepositoryImpl implements IProjectRepository {
       catch: (e) => new Error(`FirestoreProjectRepository.create encode failed: ${e}`),
     }).pipe(
       Effect.flatMap((encoded) =>
-        // Idempotent: create only if not already present
         Effect.tryPromise({
           try: async () => {
-            const ref = this.db.collection("projects").doc(info.id)
-            await this.db.runTransaction(async (tx) => {
+            const ref = this.projects.doc(info.id)
+            await this.projects.firestore.runTransaction(async (tx) => {
               const snap = await tx.get(ref)
               if (!snap.exists) {
                 tx.set(ref, encoded as object)
@@ -110,11 +112,7 @@ class FirestoreProjectRepositoryImpl implements IProjectRepository {
     patch: Partial<Project.Info>,
   ): Effect.Effect<void, Error> {
     return Effect.tryPromise({
-      try: () =>
-        this.db
-          .collection("projects")
-          .doc(id)
-          .update(patch as Record<string, unknown>),
+      try: () => this.projects.doc(id).update(patch as Record<string, unknown>),
       catch: (e) =>
         new Error(`FirestoreProjectRepository.update failed: ${e}`),
     }).pipe(Effect.asVoid)
@@ -124,11 +122,12 @@ class FirestoreProjectRepositoryImpl implements IProjectRepository {
 export const FirestoreProjectRepositoryLive: Layer.Layer<
   ProjectRepository,
   never,
-  FirestoreClient
+  FirestoreClient | GoogleIdentity
 > = Layer.effect(
   ProjectRepository,
   Effect.gen(function* () {
     const { db } = yield* FirestoreClient
-    return new FirestoreProjectRepositoryImpl(db)
+    const { email } = yield* GoogleIdentity
+    return new FirestoreProjectRepositoryImpl(db, email)
   }),
 )

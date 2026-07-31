@@ -52,6 +52,7 @@ import {
   type IEventRepository,
 } from "@gco/model-domain"
 import { Service as ToolRegistry } from "@gco/controller-tool/ToolRegistry"
+import { PROMPT_COMPACTION } from "@gco/controller-agent/AgentRegistry"
 import { ModelResolver, ModelNotResolvedError } from "./ModelResolver"
 
 // ---------------------------------------------------------------------------
@@ -60,6 +61,13 @@ import { ModelResolver, ModelNotResolvedError } from "./ModelResolver"
 
 const DEFAULT_MAX_STEPS = 20
 const MAX_STEPS_PROMPT = "[Max steps reached — please continue in a new message.]"
+
+// Trigger proactive compaction when input token count exceeds this threshold.
+// Conservative enough to leave room for the compaction LLM call itself.
+const COMPACTION_TOKEN_THRESHOLD = 100_000
+
+// Number of recent messages kept verbatim (not summarized) during compaction.
+const COMPACTION_RECENT_MESSAGES = 4
 
 // ---------------------------------------------------------------------------
 // Interface
@@ -80,6 +88,51 @@ export interface Interface {
 export class SessionRunner extends Context.Service<SessionRunner, Interface>()(
   "@gco/SessionRunner",
 ) {}
+
+// ---------------------------------------------------------------------------
+// Compaction — format messages as human-readable text for the summary LLM
+// ---------------------------------------------------------------------------
+
+function formatMessagesAsText(messages: SessionMessage.Message[]): string {
+  const sections: string[] = []
+
+  for (const msg of messages) {
+    switch (msg.type) {
+      case "user":
+        sections.push(`[User]\n${msg.text}`)
+        break
+      case "assistant": {
+        const parts: string[] = []
+        for (const p of msg.content) {
+          if (p.type === "text" && p.text) {
+            parts.push(`[Assistant]\n${p.text}`)
+          } else if (p.type === "tool") {
+            const lines = [`[Tool: ${p.name}]`]
+            if (p.state.status === "completed") {
+              lines.push(`Input: ${JSON.stringify(p.state.input)}`)
+              const out = p.state.content.map((c) => ("text" in c ? c.text : "")).join("\n")
+              lines.push(`Output: ${out.length > 2000 ? out.slice(0, 2000) + "…" : out}`)
+            } else if (p.state.status === "error") {
+              lines.push(`Input: ${JSON.stringify(p.state.input)}`)
+              lines.push(`Error: ${p.state.error.message}`)
+            }
+            parts.push(lines.join("\n"))
+          }
+        }
+        if (parts.length) sections.push(parts.join("\n"))
+        break
+      }
+      case "compaction":
+        sections.push(`[Previous Summary]\n${msg.summary}`)
+        break
+      case "system":
+        sections.push(`[System]\n${msg.text}`)
+        break
+    }
+  }
+
+  return sections.join("\n\n---\n\n")
+}
 
 // ---------------------------------------------------------------------------
 // History projection — events → SessionMessage.Message[]
@@ -1251,6 +1304,105 @@ export const layer = Layer.effect(
       )
 
     /**
+     * Summarize the conversation history and write a compaction checkpoint event.
+     *
+     * Splits messages into "old" (to summarize) and "recent" (kept verbatim).
+     * Calls the LLM with the compaction system prompt to generate the summary,
+     * then appends `compaction.started` + `compaction.ended` events so that
+     * subsequent `loadFromCompaction` calls start from this checkpoint.
+     *
+     * Failures are swallowed — a failed compaction is non-fatal; the session
+     * continues with an oversized context rather than crashing.
+     */
+    const runCompactionImpl = Effect.fn("SessionRunner.runCompaction")(function* (
+      sessionID: Session.ID,
+      reason: "auto" | "manual",
+    ) {
+      const session = yield* getSession(sessionID)
+      const model = yield* modelResolver.resolve(session)
+
+      const allEvents = yield* eventRepo.load(sessionID)
+      const allMessages = projectMessages(allEvents)
+
+      // Need at least a few messages for compaction to be worthwhile
+      if (allMessages.length <= COMPACTION_RECENT_MESSAGES) return
+
+      const splitAt = allMessages.length - COMPACTION_RECENT_MESSAGES
+      const oldMessages = allMessages.slice(0, splitAt)
+      const recentMessages = allMessages.slice(splitAt)
+
+      const previousCompaction = [...oldMessages].reverse().find(
+        (m): m is SessionMessage.Compaction => m.type === "compaction",
+      )
+
+      const userPrompt = [
+        previousCompaction
+          ? `<previous-summary>\n${previousCompaction.summary}\n</previous-summary>\n`
+          : "",
+        `<conversation>\n${formatMessagesAsText(oldMessages)}\n</conversation>`,
+      ]
+        .filter(Boolean)
+        .join("\n")
+
+      const messageID = SessionMessage.ID.create()
+      const durable = undefined as unknown as SessionEvent.DurableEvent["durable"]
+
+      const tsStart = yield* DateTime.now
+      yield* eventRepo.append(sessionID, [
+        {
+          id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          type: "session.next.compaction.started",
+          durable,
+          data: { sessionID, timestamp: tsStart, messageID, reason },
+        } as unknown as SessionEvent.DurableEvent,
+      ])
+
+      const summaryChunks: string[] = []
+      const compactionRequest = new LLMRequest({
+        model,
+        system: [SystemPart.make(PROMPT_COMPACTION)],
+        messages: [Message.make({ id: messageID, role: "user", content: userPrompt })],
+        tools: [],
+        toolChoice: new ToolChoice({ type: "none" }),
+      })
+
+      yield* llmClient.stream(compactionRequest).pipe(
+        Stream.runForEach((event) =>
+          Effect.sync(() => {
+            if (event.type === "text-delta") summaryChunks.push(event.text)
+          }),
+        ),
+      )
+
+      const summary = summaryChunks.join("")
+      const recentText = formatMessagesAsText(recentMessages)
+      const tsEnd = yield* DateTime.now
+
+      yield* eventRepo.append(sessionID, [
+        {
+          id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          type: "session.next.compaction.ended",
+          durable,
+          data: {
+            sessionID,
+            timestamp: tsEnd,
+            messageID,
+            reason,
+            text: summary,
+            recent: recentText,
+          },
+        } as unknown as SessionEvent.DurableEvent,
+      ])
+    })
+
+    // Wrap runCompaction so failures are always swallowed — a failed compaction
+    // is non-fatal; the session continues with an oversized context.
+    const runCompaction = (sessionID: Session.ID, reason: "auto" | "manual"): Effect.Effect<void> =>
+      runCompactionImpl(sessionID, reason).pipe(
+        Effect.catchCause(() => Effect.void),
+      )
+
+    /**
      * Run one complete LLM turn: load history → stream → tool settlement → continuation.
      */
     const runTurn = Effect.fn("SessionRunner.runTurn")(function* (
@@ -1440,6 +1592,8 @@ export const layer = Layer.effect(
 
           return {
             needsContinuation: !publisher.hasProviderError() && needsContinuation,
+            overflowOccurred: overflowFailure !== undefined,
+            inputTokens: settlement?.tokens?.input ?? 0,
             step,
           }
         }),
@@ -1466,6 +1620,20 @@ export const layer = Layer.effect(
 
       while (needsContinuation) {
         const result = yield* runTurn(input.sessionID, step)
+
+        // Reactive compaction: context overflow — compact then retry the turn
+        if (result.overflowOccurred) {
+          yield* runCompaction(input.sessionID, "auto")
+          step = 1
+          needsContinuation = true
+          continue
+        }
+
+        // Proactive compaction: input tokens approaching context limit
+        if (result.inputTokens >= COMPACTION_TOKEN_THRESHOLD) {
+          yield* runCompaction(input.sessionID, "auto")
+        }
+
         needsContinuation = result.needsContinuation
         step = result.step + 1
 

@@ -1,6 +1,6 @@
 import { Effect, Layer, Schema } from "effect"
 import type { Firestore } from "@google-cloud/firestore"
-import { FirestoreClient } from "@gco/infra-gcp"
+import { FirestoreClient, GoogleIdentity } from "@gco/infra-gcp"
 import {
   PermissionRepository,
   type IPermissionRepository,
@@ -11,12 +11,16 @@ const decodeInfoSync = Schema.decodeUnknownSync(PermissionSaved.Info)
 const encodeInfoSync = Schema.encodeSync(PermissionSaved.Info)
 
 class FirestorePermissionRepositoryImpl implements IPermissionRepository {
-  constructor(private readonly db: Firestore) {}
+  private readonly permissions: FirebaseFirestore.CollectionReference
+
+  constructor(db: Firestore, userId: string) {
+    this.permissions = db.collection("users").doc(userId).collection("permissions")
+  }
 
   list(): Effect.Effect<PermissionSaved.Info[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db.collection("permissions").get()
+        const snap = await this.permissions.get()
         return snap.docs.map((d) => d.data())
       },
       catch: (e) =>
@@ -38,8 +42,7 @@ class FirestorePermissionRepositoryImpl implements IPermissionRepository {
   ): Effect.Effect<PermissionSaved.Info[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db
-          .collection("permissions")
+        const snap = await this.permissions
           .where("projectID", "==", projectID)
           .get()
         return snap.docs.map((d) => d.data())
@@ -69,8 +72,7 @@ class FirestorePermissionRepositoryImpl implements IPermissionRepository {
         // Use set() with merge to replace any existing rule for the same ID
         Effect.tryPromise({
           try: () =>
-            this.db
-              .collection("permissions")
+            this.permissions
               .doc(info.id)
               .set(encoded as object),
           catch: (e) =>
@@ -83,7 +85,7 @@ class FirestorePermissionRepositoryImpl implements IPermissionRepository {
 
   remove(id: PermissionSaved.ID): Effect.Effect<void, Error> {
     return Effect.tryPromise({
-      try: () => this.db.collection("permissions").doc(id).delete(),
+      try: () => this.permissions.doc(id).delete(),
       catch: (e) =>
         new Error(`FirestorePermissionRepository.remove failed: ${e}`),
     }).pipe(Effect.asVoid)
@@ -92,12 +94,11 @@ class FirestorePermissionRepositoryImpl implements IPermissionRepository {
   removeAllForProject(projectID: string): Effect.Effect<void, Error> {
     return Effect.tryPromise({
       try: async () => {
-        const snap = await this.db
-          .collection("permissions")
+        const snap = await this.permissions
           .where("projectID", "==", projectID)
           .get()
 
-        const batch = this.db.batch()
+        const batch = this.permissions.firestore.batch()
         for (const doc of snap.docs) {
           batch.delete(doc.ref)
         }
@@ -114,11 +115,12 @@ class FirestorePermissionRepositoryImpl implements IPermissionRepository {
 export const FirestorePermissionRepositoryLive: Layer.Layer<
   PermissionRepository,
   never,
-  FirestoreClient
+  FirestoreClient | GoogleIdentity
 > = Layer.effect(
   PermissionRepository,
   Effect.gen(function* () {
     const { db } = yield* FirestoreClient
-    return new FirestorePermissionRepositoryImpl(db)
+    const { email } = yield* GoogleIdentity
+    return new FirestorePermissionRepositoryImpl(db, email)
   }),
 )

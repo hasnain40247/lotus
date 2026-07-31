@@ -35,7 +35,7 @@ Guidelines:
 
 Complete the user's search request efficiently and report your findings clearly.`
 
-const PROMPT_COMPACTION = `You are an anchored context summarization assistant for coding sessions.
+export const PROMPT_COMPACTION = `You are an anchored context summarization assistant for coding sessions.
 
 Summarize only the conversation history you are given. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.
 

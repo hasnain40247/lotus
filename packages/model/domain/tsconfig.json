@@ -1,0 +1,11 @@
+{
+  "extends": "@tsconfig/bun/tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@gco/schema": ["../../shared/schema/src/index.ts"],
+      "@gco/schema/*": ["../../shared/schema/src/*.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

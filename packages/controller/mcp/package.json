@@ -1,0 +1,29 @@
+{
+  "name": "@gco/controller-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "effect": "catalog:",
+    "open": "^10.0.0",
+    "xdg-basedir": "^5.1.0"
+  },
+  "peerDependencies": {
+    "@gco/schema": "workspace:*",
+    "@gco/model-domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "^1.0.7",
+    "@types/bun": "latest",
+    "typescript": "^5.8.2"
+  }
+}

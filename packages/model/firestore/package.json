@@ -1,0 +1,24 @@
+{
+  "name": "@gco/model-firestore",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "catalog:",
+    "@gco/model-domain": "workspace:*",
+    "@gco/infra-gcp": "workspace:*",
+    "@gco/schema": "workspace:*",
+    "@google-cloud/firestore": "^7.11.0"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "^1.0.7",
+    "typescript": "^5.8.2"
+  }
+}

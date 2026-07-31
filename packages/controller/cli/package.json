@@ -1,0 +1,40 @@
+{
+  "name": "@gco/controller-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "bin": {
+    "gcloud-opencode": "./src/index.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "catalog:",
+    "yargs": "^17.7.2",
+    "@clack/prompts": "^0.10.1",
+    "@gco/schema": "workspace:*",
+    "@gco/model-domain": "workspace:*",
+    "@gco/model-firestore": "workspace:*",
+    "@gco/model-secrets": "workspace:*",
+    "@gco/model-test": "workspace:*",
+    "@gco/infra-gcp": "workspace:*",
+    "@gco/llm": "workspace:*",
+    "@gco/controller-session": "workspace:*",
+    "@gco/controller-agent": "workspace:*",
+    "@gco/controller-mcp": "workspace:*",
+    "@gco/controller-tool": "workspace:*",
+    "@gco/view-cli": "workspace:*",
+    "@gco/view-tui": "workspace:*"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "^1.0.7",
+    "@types/bun": "latest",
+    "@types/yargs": "^17.0.33",
+    "typescript": "^5.8.2"
+  }
+}

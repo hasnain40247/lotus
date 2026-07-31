@@ -1,0 +1,14 @@
+{
+  "extends": "@tsconfig/bun/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "paths": {
+      "@gco/schema": ["../../../shared/schema/src/index.ts"],
+      "@gco/schema/*": ["../../../shared/schema/src/*.ts"],
+      "@gco/model-domain": ["../../model/domain/src/index.ts"],
+      "@gco/model-domain/*": ["../../model/domain/src/*.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@gco/llm",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./route": "./src/route/index.ts",
+    "./provider": "./src/provider.ts",
+    "./providers": "./src/providers/index.ts",
+    "./providers/anthropic": "./src/providers/anthropic.ts",
+    "./providers/deepseek": "./src/providers/deepseek.ts",
+    "./providers/ollama": "./src/providers/ollama.ts",
+    "./providers/vertex": "./src/providers/vertex.ts",
+    "./protocols": "./src/protocols/index.ts",
+    "./protocols/anthropic-messages": "./src/protocols/anthropic-messages.ts",
+    "./protocols/gemini": "./src/protocols/gemini.ts",
+    "./protocols/openai-chat": "./src/protocols/openai-chat.ts",
+    "./protocols/openai-compatible-chat": "./src/protocols/openai-compatible-chat.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "catalog:",
+    "@gco/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "^1.0.7",
+    "@types/bun": "latest",
+    "typescript": "^5.8.2"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "@gco/controller-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "diff": "^7.0.0",
+    "htmlparser2": "^9.1.0",
+    "turndown": "^7.2.0",
+    "effect": "catalog:"
+  },
+  "peerDependencies": {
+    "@gco/schema": "workspace:*",
+    "@gco/model-domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "^1.0.7",
+    "@types/bun": "latest",
+    "@types/diff": "^7.0.0",
+    "@types/turndown": "^5.0.5",
+    "typescript": "^5.8.2"
+  }
+}

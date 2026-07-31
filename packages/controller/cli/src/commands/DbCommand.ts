@@ -12,7 +12,7 @@
 import type { CommandModule, Argv } from "yargs"
 import { EOL } from "node:os"
 import { Effect } from "effect"
-import { GcpConfig } from "@gco/infra-gcp"
+import { GcpConfig } from "@gco/cloud"
 import { color } from "@gco/view-cli"
 import { ProductionLayer } from "../bootstrap.js"
 

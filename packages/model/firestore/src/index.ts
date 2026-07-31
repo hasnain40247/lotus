@@ -1,5 +1,5 @@
 import { Layer } from "effect"
-import { FirestoreClient, GoogleIdentity } from "@gco/infra-gcp"
+import { FirestoreClient, GoogleIdentity } from "@gco/cloud"
 import {
   SessionRepository,
   EventRepository,
@@ -36,7 +36,7 @@ import { FirestoreCredentialRepositoryLive } from "./FirestoreCredentialReposito
 /**
  * Combined layer that wires all Firestore repository implementations.
  *
- * Requires `FirestoreClient` in the environment (provided by `@gco/infra-gcp`).
+ * Requires `FirestoreClient` in the environment (provided by `@gco/cloud`).
  * Provides all repository tags from `@gco/model-domain`.
  *
  * Usage:

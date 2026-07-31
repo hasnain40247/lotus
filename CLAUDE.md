@@ -12,10 +12,10 @@ packages/
   model/        domain/, firestore/, secrets/, test/  — data layer
   controller/   cli/, session/, agent/, mcp/, tool/   — orchestration
   view/         tui/, cli/              — terminal output only
-  infra-gcp/                            — all @google-cloud/* SDK wrappers
+  cloud/                            — all @google-cloud/* SDK wrappers
 ```
 
-**Layer boundary rule:** `view/*` never imports from `model/firestore` or `infra-gcp`. `controller/*` never imports from `view/*`. `model/*` never imports from `controller/*`.
+**Layer boundary rule:** `view/*` never imports from `model/firestore` or `cloud`. `controller/*` never imports from `view/*`. `model/*` never imports from `controller/*`.
 
 ## LLM Providers
 
@@ -72,7 +72,7 @@ bun test  # uses in-memory layer automatically
 |---|---|
 | `ARCHITECTURE_PLAN.md` | Full architectural decisions and rationale |
 | `packages/controller/cli/src/bootstrap.ts` | Effect Layer composition root (GCP vs test) |
-| `packages/infra-gcp/src/vertex/VertexAiProvider.ts` | Gemini provider implementation |
+| `packages/cloud/src/vertex/VertexAiProvider.ts` | Gemini provider implementation |
 | `packages/model/domain/src/repositories/` | Repository interfaces all implementations must satisfy |
 | `packages/model/firestore/src/` | Firestore implementations of all repos |
 | `packages/model/test/src/` | In-memory implementations for testing |

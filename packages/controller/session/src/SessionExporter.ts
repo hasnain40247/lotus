@@ -9,7 +9,7 @@
 import { Context, Effect, Layer } from "effect"
 import { Session, SessionMessage } from "@gco/schema"
 import { EventRepository, SessionEvent, SessionRepository } from "@gco/model-domain"
-import { GCSStorage } from "@gco/infra-gcp/storage"
+import { GCSStorage } from "@gco/cloud/storage"
 
 // ---------------------------------------------------------------------------
 // Types

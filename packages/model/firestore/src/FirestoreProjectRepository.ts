@@ -1,6 +1,6 @@
 import { Effect, Layer, Schema } from "effect"
 import type { Firestore } from "@google-cloud/firestore"
-import { FirestoreClient, GoogleIdentity } from "@gco/infra-gcp"
+import { FirestoreClient, GoogleIdentity } from "@gco/cloud"
 import {
   ProjectRepository,
   type IProjectRepository,

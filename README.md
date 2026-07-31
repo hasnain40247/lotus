@@ -131,7 +131,7 @@ packages/
   model/        domain interfaces, Firestore repos, Secret Manager creds, test layer
   controller/   CLI commands, session runner, agent, MCP, tools
   view/         TUI (SolidJS + OpenTUI), CLI formatters
-  infra-gcp/    GCP SDK wrappers (Firestore, Storage, Secret Manager, Vertex AI, Logging)
+  cloud/    GCP SDK wrappers (Firestore, Storage, Secret Manager, Vertex AI, Logging)
 ```
 
 See [`ARCHITECTURE_PLAN.md`](./ARCHITECTURE_PLAN.md) for the full design decisions and rationale.

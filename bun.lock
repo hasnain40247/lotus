@@ -11,6 +11,24 @@
         "typescript": "catalog:",
       },
     },
+    "packages/cloud": {
+      "name": "@gco/cloud",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ai-sdk/provider": "^3.0.8",
+        "@google-cloud/firestore": "^7.11.0",
+        "@google-cloud/logging": "^11.3.0",
+        "@google-cloud/secret-manager": "^5.6.0",
+        "@google-cloud/storage": "^7.16.0",
+        "@google-cloud/vertexai": "^1.9.3",
+        "effect": "catalog:",
+        "google-auth-library": "^10.6.2",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "^1.0.7",
+        "typescript": "^5.8.2",
+      },
+    },
     "packages/controller/agent": {
       "name": "@gco/controller-agent",
       "version": "0.1.0",
@@ -35,11 +53,11 @@
       },
       "dependencies": {
         "@clack/prompts": "^0.10.1",
+        "@gco/cloud": "workspace:*",
         "@gco/controller-agent": "workspace:*",
         "@gco/controller-mcp": "workspace:*",
         "@gco/controller-session": "workspace:*",
         "@gco/controller-tool": "workspace:*",
-        "@gco/infra-gcp": "workspace:*",
         "@gco/llm": "workspace:*",
         "@gco/model-domain": "workspace:*",
         "@gco/model-firestore": "workspace:*",
@@ -81,9 +99,9 @@
       "name": "@gco/controller-session",
       "version": "0.1.0",
       "dependencies": {
+        "@gco/cloud": "workspace:*",
         "@gco/controller-agent": "workspace:*",
         "@gco/controller-tool": "workspace:*",
-        "@gco/infra-gcp": "workspace:*",
         "@gco/llm": "workspace:*",
         "@gco/model-domain": "workspace:*",
         "@gco/schema": "workspace:*",
@@ -116,24 +134,6 @@
         "@gco/schema": "workspace:*",
       },
     },
-    "packages/infra-gcp": {
-      "name": "@gco/infra-gcp",
-      "version": "0.1.0",
-      "dependencies": {
-        "@ai-sdk/provider": "^3.0.8",
-        "@google-cloud/firestore": "^7.11.0",
-        "@google-cloud/logging": "^11.3.0",
-        "@google-cloud/secret-manager": "^5.6.0",
-        "@google-cloud/storage": "^7.16.0",
-        "@google-cloud/vertexai": "^1.9.3",
-        "effect": "catalog:",
-        "google-auth-library": "^10.6.2",
-      },
-      "devDependencies": {
-        "@tsconfig/bun": "^1.0.7",
-        "typescript": "^5.8.2",
-      },
-    },
     "packages/model/domain": {
       "name": "@gco/model-domain",
       "version": "0.1.0",
@@ -150,7 +150,7 @@
       "name": "@gco/model-firestore",
       "version": "0.1.0",
       "dependencies": {
-        "@gco/infra-gcp": "workspace:*",
+        "@gco/cloud": "workspace:*",
         "@gco/model-domain": "workspace:*",
         "@gco/schema": "workspace:*",
         "@google-cloud/firestore": "^7.11.0",
@@ -165,7 +165,7 @@
       "name": "@gco/model-secrets",
       "version": "0.1.0",
       "dependencies": {
-        "@gco/infra-gcp": "workspace:*",
+        "@gco/cloud": "workspace:*",
         "@gco/model-domain": "workspace:*",
         "@google-cloud/firestore": "^7.11.0",
         "effect": "catalog:",
@@ -352,6 +352,8 @@
 
     "@clack/prompts": ["@clack/prompts@0.10.1", "", { "dependencies": { "@clack/core": "0.4.2", "picocolors": "^1.0.0", "sisteransi": "^1.0.5" } }, "sha512-Q0T02vx8ZM9XSv9/Yde0jTmmBQufZhPJfYAg2XrrrxWWaZgq1rr8nU8Hv710BQ1dhoP8rtY7YUdpGej2Qza/cw=="],
 
+    "@gco/cloud": ["@gco/cloud@workspace:packages/cloud"],
+
     "@gco/controller-agent": ["@gco/controller-agent@workspace:packages/controller/agent"],
 
     "@gco/controller-cli": ["@gco/controller-cli@workspace:packages/controller/cli"],
@@ -361,8 +363,6 @@
     "@gco/controller-session": ["@gco/controller-session@workspace:packages/controller/session"],
 
     "@gco/controller-tool": ["@gco/controller-tool@workspace:packages/controller/tool"],
-
-    "@gco/infra-gcp": ["@gco/infra-gcp@workspace:packages/infra-gcp"],
 
     "@gco/llm": ["@gco/llm@workspace:packages/shared/llm"],
 

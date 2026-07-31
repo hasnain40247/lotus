@@ -16,7 +16,7 @@ import os from "node:os"
 import path from "node:path"
 import { Effect, Duration } from "effect"
 import { color } from "@gco/view-cli"
-import { GcpConfig } from "@gco/infra-gcp"
+import { GcpConfig } from "@gco/cloud"
 import { AgentService } from "@gco/controller-agent"
 import { ProductionLayer } from "../bootstrap.js"
 

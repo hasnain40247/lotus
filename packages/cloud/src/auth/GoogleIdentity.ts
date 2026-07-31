@@ -14,7 +14,7 @@ export interface UserIdentity {
  * message if the user has not run `gcloud auth application-default login`.
  */
 export class GoogleIdentity extends Context.Service<GoogleIdentity, UserIdentity>()(
-  "@gco/infra-gcp/GoogleIdentity",
+  "@gco/cloud/GoogleIdentity",
 ) {
   static readonly layer: Layer.Layer<GoogleIdentity, Error, GcpConfig> = Layer.effect(
     GoogleIdentity,

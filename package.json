@@ -17,7 +17,7 @@
     "packages/controller/tool",
     "packages/view/tui",
     "packages/view/cli",
-    "packages/infra-gcp"
+    "packages/cloud"
   ],
   "catalog": {
     "@tsconfig/bun": "1.0.9",

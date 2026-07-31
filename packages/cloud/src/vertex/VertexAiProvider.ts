@@ -287,7 +287,7 @@ export interface VertexAiProviderShape {
   model(modelId: VertexModelId): LanguageModelV2
 }
 
-export class VertexAiProvider extends Context.Service<VertexAiProvider, VertexAiProviderShape>()("@gco/infra-gcp/VertexAiProvider") {
+export class VertexAiProvider extends Context.Service<VertexAiProvider, VertexAiProviderShape>()("@gco/cloud/VertexAiProvider") {
   static readonly layer: Layer.Layer<
     VertexAiProvider,
     never,

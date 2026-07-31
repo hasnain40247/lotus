@@ -9,7 +9,7 @@
 import { Effect, Layer } from "effect"
 
 // GCP infrastructure
-import { GcpConfig, FirestoreClient, GCSStorage, CloudLogger, GoogleIdentity } from "@gco/infra-gcp"
+import { GcpConfig, FirestoreClient, GCSStorage, CloudLogger, GoogleIdentity } from "@gco/cloud"
 
 // Model layer
 import { FirestoreModelLayer } from "@gco/model-firestore"

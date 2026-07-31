@@ -84,10 +84,10 @@ Zero tests exist. Highest-value tests to write first:
 
 ## ESLint boundary enforcement
 
-Layer boundary violations (e.g. `view/*` importing `infra-gcp`) are currently not enforced at lint time.
+Layer boundary violations (e.g. `view/*` importing `cloud`) are currently not enforced at lint time.
 
 - [ ] Configure `eslint-plugin-import` or `oxlint` `no-restricted-imports` rules per package
-- [ ] `view/*` — deny imports from `@gco/model-firestore`, `@gco/model-secrets`, `@gco/infra-gcp`
+- [ ] `view/*` — deny imports from `@gco/model-firestore`, `@gco/model-secrets`, `@gco/cloud`
 - [ ] `controller/*` — deny imports from `@gco/view-tui`, `@gco/view-cli`
 - [ ] `model/*` — deny imports from `@gco/controller-*`
 
@@ -128,4 +128,4 @@ Currently no Firestore security rules are defined. Anyone with the GCP project I
 - [ ] `gcloud-opencode session delete` — the command exists but the delete logic in `SessionController` / `ISessionRepository` is not implemented
 - [ ] `SessionImporter` — verify import from `gs://` URI fully reconstructs event log
 - [ ] `SessionExporter` — verify markdown and JSON export formats match what `session list` shows
-- [ ] Structured logging — `CloudLogger` is wired into `infra-gcp` but nothing calls it yet; add log calls at key lifecycle points (session start, LLM turn, tool execution, compaction)
+- [ ] Structured logging — `CloudLogger` is wired into `cloud` but nothing calls it yet; add log calls at key lifecycle points (session start, LLM turn, tool execution, compaction)

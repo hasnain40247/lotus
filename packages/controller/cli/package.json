@@ -22,7 +22,7 @@
     "@gco/model-firestore": "workspace:*",
     "@gco/model-secrets": "workspace:*",
     "@gco/model-test": "workspace:*",
-    "@gco/infra-gcp": "workspace:*",
+    "@gco/cloud": "workspace:*",
     "@gco/llm": "workspace:*",
     "@gco/controller-session": "workspace:*",
     "@gco/controller-agent": "workspace:*",

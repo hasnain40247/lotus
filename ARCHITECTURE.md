@@ -30,10 +30,10 @@ packages/
     tui/         @gco/view-tui    — SolidJS + OpenTUI terminal UI
     cli/         @gco/view-cli    — plain-text formatters, table/color utils
 
-  infra-gcp/     @gco/infra-gcp   — all @google-cloud/* SDK wrappers
+  cloud/     @gco/cloud   — all @google-cloud/* SDK wrappers
 ```
 
-**Layer boundary rule:** `view/*` never imports from `model/firestore`, `model/secrets`, or `infra-gcp`. `controller/*` never imports from `view/*`. `model/*` never imports from `controller/*`.
+**Layer boundary rule:** `view/*` never imports from `model/firestore`, `model/secrets`, or `cloud`. `controller/*` never imports from `view/*`. `model/*` never imports from `controller/*`.
 
 ---
 
@@ -57,7 +57,7 @@ Authentication piggybacks on **Application Default Credentials (ADC)** — no se
 gcloud auth application-default login   # one-time setup
 ```
 
-At startup, `GoogleIdentity` (`infra-gcp/src/auth/GoogleIdentity.ts`) calls Google's userinfo endpoint with the ADC access token to resolve `{ email, name }`. If ADC is not configured the app exits immediately with an actionable error.
+At startup, `GoogleIdentity` (`cloud/src/auth/GoogleIdentity.ts`) calls Google's userinfo endpoint with the ADC access token to resolve `{ email, name }`. If ADC is not configured the app exits immediately with an actionable error.
 
 ### Per-user Firestore namespacing
 
@@ -76,7 +76,7 @@ All collections are scoped under `/users/{email}/` — different Google accounts
 
 ### Config
 
-GCP project and region come from environment variables read by `infra-gcp/src/config.ts`:
+GCP project and region come from environment variables read by `cloud/src/config.ts`:
 
 ```bash
 GCLOUD_OPENCODE_PROJECT_ID=my-project   # required

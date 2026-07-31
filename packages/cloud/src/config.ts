@@ -5,7 +5,7 @@ export interface GcpConfigShape {
   readonly region: string
 }
 
-export class GcpConfig extends Context.Service<GcpConfig, GcpConfigShape>()("@gco/infra-gcp/GcpConfig") {
+export class GcpConfig extends Context.Service<GcpConfig, GcpConfigShape>()("@gco/cloud/GcpConfig") {
   static readonly layer: Layer.Layer<GcpConfig, Config.ConfigError> =
     Layer.effect(
       GcpConfig,

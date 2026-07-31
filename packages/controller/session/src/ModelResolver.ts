@@ -6,7 +6,7 @@
  * The controller-session package only defines the interface and the tag.
  *
  * Example implementations:
- *   - Vertex AI: resolves through @gco/infra-gcp/vertex
+ *   - Vertex AI: resolves through @gco/cloud/vertex
  *   - Anthropic direct: resolves through @gco/llm protocols/anthropic-messages
  */
 

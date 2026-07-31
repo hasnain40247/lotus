@@ -6,7 +6,7 @@ export interface SecretManagerClientShape {
   readonly client: SecretManagerServiceClient
 }
 
-export class SecretManagerClient extends Context.Service<SecretManagerClient, SecretManagerClientShape>()("@gco/infra-gcp/SecretManagerClient") {
+export class SecretManagerClient extends Context.Service<SecretManagerClient, SecretManagerClientShape>()("@gco/cloud/SecretManagerClient") {
   static readonly layer: Layer.Layer<
     SecretManagerClient,
     never,

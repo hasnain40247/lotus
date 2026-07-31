@@ -21,7 +21,7 @@ import {
   createSecret,
   deleteSecret,
   destroyAllVersions,
-} from "@gco/infra-gcp"
+} from "@gco/cloud"
 
 // ── Firestore document shape ──────────────────────────────────────────────────
 

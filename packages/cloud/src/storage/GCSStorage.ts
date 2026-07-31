@@ -38,7 +38,7 @@ function parseGsUri(uri: string): { bucket: string; path: string } {
   }
 }
 
-export class GCSStorage extends Context.Service<GCSStorage, GCSStorageShape>()("@gco/infra-gcp/GCSStorage") {
+export class GCSStorage extends Context.Service<GCSStorage, GCSStorageShape>()("@gco/cloud/GCSStorage") {
   static readonly layer: Layer.Layer<
     GCSStorage,
     never,

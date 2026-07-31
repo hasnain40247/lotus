@@ -6,8 +6,8 @@
       "@gco/schema": ["../../shared/schema/src/index.ts"],
       "@gco/schema/*": ["../../shared/schema/src/*.ts"],
       "@gco/model-domain": ["../../model/domain/src/index.ts"],
-      "@gco/infra-gcp": ["../../infra-gcp/src/index.ts"],
-      "@gco/infra-gcp/*": ["../../infra-gcp/src/*.ts"]
+      "@gco/cloud": ["../../cloud/src/index.ts"],
+      "@gco/cloud/*": ["../../cloud/src/*.ts"]
     }
   },
   "include": ["src/**/*.ts"]

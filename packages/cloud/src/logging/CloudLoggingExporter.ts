@@ -34,7 +34,7 @@ export interface CloudLoggerShape {
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
-export class CloudLogger extends Context.Service<CloudLogger, CloudLoggerShape>()("@gco/infra-gcp/CloudLogger") {
+export class CloudLogger extends Context.Service<CloudLogger, CloudLoggerShape>()("@gco/cloud/CloudLogger") {
   static readonly layer: Layer.Layer<
     CloudLogger,
     never,

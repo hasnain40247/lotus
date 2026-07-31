@@ -6,7 +6,7 @@ export interface FirestoreClientShape {
   readonly db: Firestore
 }
 
-export class FirestoreClient extends Context.Service<FirestoreClient, FirestoreClientShape>()("@gco/infra-gcp/FirestoreClient") {
+export class FirestoreClient extends Context.Service<FirestoreClient, FirestoreClientShape>()("@gco/cloud/FirestoreClient") {
   static readonly layer: Layer.Layer<
     FirestoreClient,
     never,

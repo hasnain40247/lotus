@@ -1,0 +1,53 @@
+{
+  "name": "gcloud-opencode",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/shared/schema",
+    "packages/shared/sdk",
+    "packages/shared/llm",
+    "packages/model/domain",
+    "packages/model/firestore",
+    "packages/model/secrets",
+    "packages/model/test",
+    "packages/controller/cli",
+    "packages/controller/session",
+    "packages/controller/agent",
+    "packages/controller/mcp",
+    "packages/controller/tool",
+    "packages/view/tui",
+    "packages/view/cli",
+    "packages/infra-gcp"
+  ],
+  "catalog": {
+    "@tsconfig/bun": "1.0.9",
+    "@types/bun": "1.3.13",
+    "@typescript/native-preview": "7.0.0-dev.20251207.1",
+    "@opentui/core": "0.3.4",
+    "@opentui/keymap": "0.3.4",
+    "@opentui/solid": "0.3.4",
+    "opentui-spinner": "0.0.7",
+    "diff": "8.0.2",
+    "effect": "4.0.0-beta.83",
+    "fuzzysort": "3.1.0",
+    "glob": "13.0.5",
+    "minimatch": "10.0.1",
+    "remeda": "2.26.0",
+    "solid-js": "1.9.10",
+    "typescript": "5.8.2",
+    "which": "5.0.0",
+    "ulid": "3.0.1"
+  },
+  "scripts": {
+    "dev": "bun run packages/controller/cli/src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint .",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "oxlint": "^1.60.0",
+    "typescript": "catalog:"
+  }
+}

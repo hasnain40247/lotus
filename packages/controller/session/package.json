@@ -23,6 +23,7 @@
   "devDependencies": {
     "@tsconfig/bun": "^1.0.7",
     "@types/bun": "latest",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "@gco/model-test": "workspace:*"
   }
 }

@@ -26,6 +26,7 @@
     "@types/bun": "latest",
     "@types/diff": "^7.0.0",
     "@types/turndown": "^5.0.5",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "@gco/model-test": "workspace:*"
   }
 }

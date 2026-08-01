@@ -108,6 +108,7 @@
         "effect": "catalog:",
       },
       "devDependencies": {
+        "@gco/model-test": "workspace:*",
         "@tsconfig/bun": "^1.0.7",
         "@types/bun": "latest",
         "typescript": "^5.8.2",
@@ -123,6 +124,7 @@
         "turndown": "^7.2.0",
       },
       "devDependencies": {
+        "@gco/model-test": "workspace:*",
         "@tsconfig/bun": "^1.0.7",
         "@types/bun": "latest",
         "@types/diff": "^7.0.0",

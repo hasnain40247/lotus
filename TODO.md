@@ -4,6 +4,26 @@ Things that still need to be built. Roughly priority order within each section.
 
 ---
 
+## 🚨 Blockers
+
+- [ ] **Enable GCP APIs** — Firestore, Secret Manager, Cloud Storage, and Cloud Logging APIs must be enabled in project `gen-lang-client-0983206083` before sessions can be created or stored:
+  ```bash
+  gcloud services enable \
+    firestore.googleapis.com \
+    secretmanager.googleapis.com \
+    storage.googleapis.com \
+    logging.googleapis.com \
+    --project gen-lang-client-0983206083
+  ```
+- [ ] **Create Firestore database** — must be in native mode in `us-central1`:
+  ```bash
+  gcloud firestore databases create \
+    --location=us-central1 \
+    --project gen-lang-client-0983206083
+  ```
+
+---
+
 ## Tool implementations
 
 The 19 tool files exist in `controller/tool/src/tools/` but most are stubs — the files are present but the actual logic (shell execution, file I/O, etc.) hasn't been ported from the original `opencode-cli` yet.

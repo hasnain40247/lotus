@@ -4,12 +4,24 @@
  * Two exported layers:
  *   ProductionLayer — real GCP services (Firestore, Secret Manager, Vertex AI)
  *   TestLayer       — in-memory repositories, no GCP needed
+ *
+ * Layer wiring rules:
+ *   Layer.mergeAll evaluates layers in parallel — siblings cannot satisfy each
+ *   other's requirements. Use Layer.provide(dep) to explicitly wire a dependency
+ *   into a layer before merging it with others.
  */
 
 import { Effect, Layer } from "effect"
 
 // GCP infrastructure
-import { GcpConfig, FirestoreClient, GCSStorage, CloudLogger, GoogleIdentity } from "@gco/cloud"
+import {
+  GcpConfig,
+  FirestoreClient,
+  GCSStorage,
+  CloudLogger,
+  GoogleIdentity,
+  SecretManagerClient,
+} from "@gco/cloud"
 
 // Model layer
 import { FirestoreModelLayer } from "@gco/model-firestore"
@@ -37,15 +49,9 @@ import type { Model } from "@gco/llm"
 import type { Session } from "@gco/schema"
 
 // ---------------------------------------------------------------------------
-// ModelResolver implementation — resolves Vertex AI models
+// ModelResolver implementations
 // ---------------------------------------------------------------------------
 
-/**
- * A concrete ModelResolver backed by Vertex AI.
- *
- * Resolves the model from the session's configured model ID + providerID.
- * Falls back to gemini-2.5-pro-preview-06-05 when no model is configured.
- */
 const vertexModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConfig> = Layer.effect(
   ModelResolver,
   Effect.gen(function* () {
@@ -69,14 +75,10 @@ const vertexModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConfig> = L
   }),
 )
 
-/**
- * Fallback ModelResolver for TestLayer — always returns a fixed test model.
- */
 const testModelResolverLayer: Layer.Layer<ModelResolver> = Layer.succeed(
   ModelResolver,
   ModelResolver.of({
     resolve: (_session: Session.Info) => {
-      // In tests, there is no real LLM — this satisfies the type constraint.
       const fakeModel = {} as unknown as Model
       return Effect.succeed(fakeModel)
     },
@@ -84,7 +86,7 @@ const testModelResolverLayer: Layer.Layer<ModelResolver> = Layer.succeed(
 )
 
 // ---------------------------------------------------------------------------
-// LLM Client layer — uses the native fetch-based HTTP executor
+// LLM Client layer
 // ---------------------------------------------------------------------------
 
 const llmClientLayer: Layer.Layer<LLMClientService> = LLMClient.layer.pipe(
@@ -92,52 +94,56 @@ const llmClientLayer: Layer.Layer<LLMClientService> = LLMClient.layer.pipe(
 )
 
 // ---------------------------------------------------------------------------
-// Production Layer — wires real GCP services
+// Production Layer
 // ---------------------------------------------------------------------------
 
-/**
- * Production Effect Layer. Uses Firestore for session/event/credential storage,
- * Secret Manager for secrets, Vertex AI for LLM calls, and Cloud Logging.
- *
- * Usage:
- *   Effect.runPromise(program.pipe(Effect.provide(ProductionLayer)))
- */
-export const ProductionLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
-  // GCP infrastructure
-  GcpConfig.layer,
+// GCP primitive services — all require GcpConfig, provided here.
+const gcpServicesLayer = Layer.mergeAll(
   FirestoreClient.layer,
   GCSStorage.layer,
   CloudLogger.layer,
   GoogleIdentity.layer,
+  SecretManagerClient.layer,
+  vertexModelResolverLayer,
+).pipe(Layer.provide(GcpConfig.layer))
 
-  // Model layer (Firestore-backed)
+// Model repositories — require GCP services + GcpConfig (SecretsModelLayer uses it directly).
+const modelReposLayer = Layer.mergeAll(
   FirestoreModelLayer,
   SecretsModelLayer,
+).pipe(Layer.provide(Layer.merge(gcpServicesLayer, GcpConfig.layer)))
 
-  // LLM client
+// Infrastructure available to all controllers (everything except SessionRunner itself).
+const infraLayer = Layer.mergeAll(
+  GcpConfig.layer,
+  gcpServicesLayer,
+  modelReposLayer,
   llmClientLayer,
+  agentLayer,
+  toolRegistryLayer,
+  mcpAuthLayer,
+)
 
-  // Model resolver (Vertex AI)
-  vertexModelResolverLayer,
+// SessionRunner needs LLM, repos, ToolRegistry, and ModelResolver — all in infraLayer.
+const sessionRunnerWithDeps = sessionRunnerLayer.pipe(Layer.provide(infraLayer))
 
-  // Controllers
+// Top-level controllers — need repos, GCSStorage, and SessionRunner.
+const controllersLayer = Layer.mergeAll(
   sessionControllerLayer,
-  sessionRunnerLayer,
   sessionExporterLayer,
   sessionImporterLayer,
-  agentLayer,
-  mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
-  mcpAuthLayer,
-  toolRegistryLayer,
   toolPermissionEnforcerLayer,
+  mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
+).pipe(Layer.provide(Layer.merge(infraLayer, sessionRunnerWithDeps)))
+
+export const ProductionLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
+  infraLayer,
+  sessionRunnerWithDeps,
+  controllersLayer,
 ) as unknown as Layer.Layer<any, any, never>
 
 // ---------------------------------------------------------------------------
-// Test Layer — in-memory repos, no GCP needed
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Stubs for TestLayer (no-op / fixed implementations)
+// Test Layer
 // ---------------------------------------------------------------------------
 
 const stubGoogleIdentityLayer: Layer.Layer<GoogleIdentity> = Layer.succeed(
@@ -160,27 +166,30 @@ const stubGCSStorageLayer: Layer.Layer<GCSStorage> = Layer.succeed(
   }),
 )
 
-/**
- * Test Effect Layer. Uses in-memory repositories — no network calls or GCP
- * credentials required. Suitable for unit tests and CI environments.
- */
-export const TestLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
+// Infrastructure for tests — in-memory repos, no GCP needed.
+const testInfraLayer = Layer.mergeAll(
   TestModelLayer,
   stubGCSStorageLayer,
   stubGoogleIdentityLayer,
-
-  // LLM client (still uses real HTTP but with a fake model resolver)
   llmClientLayer,
+  agentLayer,
+  toolRegistryLayer,
+  mcpAuthLayer,
   testModelResolverLayer,
+)
 
-  // Controllers
+const testSessionRunnerWithDeps = sessionRunnerLayer.pipe(Layer.provide(testInfraLayer))
+
+const testControllersLayer = Layer.mergeAll(
   sessionControllerLayer,
-  sessionRunnerLayer,
   sessionExporterLayer,
   sessionImporterLayer,
-  agentLayer,
-  mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
-  mcpAuthLayer,
-  toolRegistryLayer,
   toolPermissionEnforcerLayer,
+  mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
+).pipe(Layer.provide(Layer.merge(testInfraLayer, testSessionRunnerWithDeps)))
+
+export const TestLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
+  testInfraLayer,
+  testSessionRunnerWithDeps,
+  testControllersLayer,
 ) as unknown as Layer.Layer<any, any, never>

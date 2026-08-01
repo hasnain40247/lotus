@@ -39,7 +39,8 @@
     "ulid": "3.0.1"
   },
   "scripts": {
-    "dev": "bun run packages/controller/cli/src/index.ts",
+    "dev": "bun run --preload ./preload.ts packages/controller/cli/src/index.ts",
+    "postinstall": "node -e \"const fs=require('fs'),p='node_modules/@opentui';fs.mkdirSync(p,{recursive:true});try{fs.symlinkSync('../.bun/'+fs.readdirSync('node_modules/.bun').find(d=>d.startsWith('@opentui+solid@'))+'/node_modules/@opentui/solid',p+'/solid')}catch(e){}\"",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint .",
     "test": "bun test"

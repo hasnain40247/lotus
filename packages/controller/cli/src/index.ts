@@ -6,6 +6,23 @@
  * consistent help/version flags.
  */
 
+// Load opencode.json GCP config into env vars before Effect reads them.
+// Effect's Config.string() only reads process.env, so this must run first.
+await (async () => {
+  try {
+    const file = Bun.file("opencode.json")
+    if (await file.exists()) {
+      const cfg = await file.json()
+      if (cfg?.gcp?.projectId && !process.env.GCLOUD_OPENCODE_PROJECT_ID)
+        process.env.GCLOUD_OPENCODE_PROJECT_ID = cfg.gcp.projectId
+      if (cfg?.gcp?.region && !process.env.GCLOUD_OPENCODE_REGION)
+        process.env.GCLOUD_OPENCODE_REGION = cfg.gcp.region
+    }
+  } catch {
+    // Malformed opencode.json — ignore, the config layer will produce a clear error.
+  }
+})()
+
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { EOL } from "node:os"

@@ -1,0 +1,4 @@
+# Bun configuration
+# The Solid JSX transform plugin (required for @opentui/solid TSX) is loaded
+# via --preload in the dev script. bunfig.toml [run].preload does not apply
+# to package.json script invocations, only to direct file runs.

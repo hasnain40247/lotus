@@ -5,3 +5,4 @@ dist/
 .env
 .env.local
 application_default_credentials.json
+opencode.json

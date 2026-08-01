@@ -11,6 +11,7 @@ import { Effect } from "effect"
 import { run, type TuiInput } from "@gco/view-tui"
 import { resolve as resolveTuiConfig } from "@gco/view-tui/config"
 import { ProductionLayer } from "../bootstrap.js"
+import { startTuiServer } from "../tui-server.js"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,8 +124,10 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
     const autoApprove = args.auto || args.yolo || args["dangerously-skip-permissions"]
     const cwd = process.cwd()
 
+    const server = startTuiServer(cwd)
+
     const tuiInput: TuiInput = {
-      url: "http://gcloud-opencode.internal",
+      url: `http://localhost:${server.port}`,
       config: defaultTuiConfig(),
       directory: cwd,
       args: {
@@ -135,9 +138,13 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
       },
     }
 
-    await Effect.runPromise(
-      run(tuiInput).pipe(Effect.provide(ProductionLayer)),
-    )
+    try {
+      await Effect.runPromise(
+        run(tuiInput).pipe(Effect.provide(ProductionLayer)),
+      )
+    } finally {
+      server.stop(true)
+    }
 
     process.exit(0)
   },

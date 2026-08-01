@@ -23,6 +23,9 @@ import {
   SecretManagerClient,
 } from "@gco/cloud"
 
+// LLM providers
+import * as DeepSeekProvider from "@gco/llm/providers/deepseek"
+
 // Model layer
 import { FirestoreModelLayer } from "@gco/model-firestore"
 import { SecretsModelLayer } from "@gco/model-secrets"
@@ -52,7 +55,7 @@ import type { Session } from "@gco/schema"
 // ModelResolver implementations
 // ---------------------------------------------------------------------------
 
-const vertexModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConfig> = Layer.effect(
+const multiProviderModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConfig> = Layer.effect(
   ModelResolver,
   Effect.gen(function* () {
     const config = yield* GcpConfig
@@ -65,10 +68,25 @@ const vertexModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConfig> = L
       const modelId =
         session.model?.id ??
         (session.model as any)?.modelID ??
-        "gemini-2.5-pro-preview-06-05"
+        "deepseek-chat"
 
-      const model = vertexProvider.model(modelId) as unknown as Model
-      return Effect.succeed(model)
+      const providerID =
+        (session.model as any)?.providerID ??
+        (session.model as any)?.provider ??
+        ""
+
+      const isDeepSeek =
+        providerID === "deepseek" ||
+        modelId.startsWith("deepseek") ||
+        modelId.includes("deepseek")
+
+      if (isDeepSeek) {
+        const apiKey = process.env.DEEPSEEK_API_KEY
+        const ds = DeepSeekProvider.configure({ apiKey })
+        return Effect.succeed(ds.model(modelId) as unknown as Model)
+      }
+
+      return Effect.succeed(vertexProvider.model(modelId) as unknown as Model)
     }
 
     return ModelResolver.of({ resolve })
@@ -104,7 +122,7 @@ const gcpServicesLayer = Layer.mergeAll(
   CloudLogger.layer,
   GoogleIdentity.layer,
   SecretManagerClient.layer,
-  vertexModelResolverLayer,
+  multiProviderModelResolverLayer,
 ).pipe(Layer.provide(GcpConfig.layer))
 
 // Model repositories — require GCP services + GcpConfig (SecretsModelLayer uses it directly).

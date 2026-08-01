@@ -17,6 +17,10 @@ await (async () => {
         process.env.GCLOUD_OPENCODE_PROJECT_ID = cfg.gcp.projectId
       if (cfg?.gcp?.region && !process.env.GCLOUD_OPENCODE_REGION)
         process.env.GCLOUD_OPENCODE_REGION = cfg.gcp.region
+      if (cfg?.provider?.deepseek?.apiKey && !process.env.DEEPSEEK_API_KEY)
+        process.env.DEEPSEEK_API_KEY = cfg.provider.deepseek.apiKey
+      if (cfg?.provider?.anthropic?.apiKey && !process.env.ANTHROPIC_API_KEY)
+        process.env.ANTHROPIC_API_KEY = cfg.provider.anthropic.apiKey
     }
   } catch {
     // Malformed opencode.json — ignore, the config layer will produce a clear error.

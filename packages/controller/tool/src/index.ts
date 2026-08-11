@@ -1,7 +1,7 @@
 /**
  * @gco/controller-tool
  *
- * Tool definitions and registry for the gcloud-opencode project.
+ * Tool definitions and registry for the lotus-code project.
  *
  * Re-exports all tool modules and provides the combined layer:
  *   ToolControllerLayer = ToolRegistry.layer + ToolPermissionEnforcer.layer
@@ -64,6 +64,8 @@ export { HttpBodyTool } from "./tools/HttpBodyTool"
 export { LspTool } from "./tools/LspTool"
 export { AgentTool } from "./tools/AgentTool"
 export { TaskTool } from "./tools/TaskTool"
+export { SkillTool } from "./tools/SkillTool"
+export { McpWebsearchTool } from "./tools/McpWebsearchTool"
 
 // ─── Service tags (re-exported for convenience) ───────────────────────────────
 
@@ -72,6 +74,8 @@ export { TodoService } from "./tools/TodoWriteTool"
 export { LspService } from "./tools/LspTool"
 export { AgentRunnerService } from "./tools/AgentTool"
 export { TaskRunnerService } from "./tools/TaskTool"
+export { SkillService } from "./tools/SkillTool"
+export { McpWebsearchService } from "./tools/McpWebsearchTool"
 export { ConfigService as WebSearchConfigService, defaultConfigLayer as webSearchDefaultConfigLayer } from "./tools/WebSearchTool"
 
 // ─── Combined layer ──────────────────────────────────────────────────────────

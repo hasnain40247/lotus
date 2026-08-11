@@ -26,51 +26,50 @@ Things that still need to be built. Roughly priority order within each section.
 
 ## Tool implementations
 
-The 19 tool files exist in `controller/tool/src/tools/` but most are stubs — the files are present but the actual logic (shell execution, file I/O, etc.) hasn't been ported from the original `opencode-cli` yet.
+All 19 tool files in `controller/tool/src/tools/` are fully implemented.
 
-- [ ] `BashTool` — shell command execution with timeout, output streaming
-- [ ] `ReadTool` — file read with line range support
-- [ ] `WriteTool` — atomic file write
-- [ ] `EditTool` — exact string replacement with uniqueness check
-- [ ] `GlobTool` — file pattern matching
-- [ ] `GrepTool` — ripgrep / regex file search
-- [ ] `WebFetchTool` — HTTP fetch with content extraction
-- [ ] `WebSearchTool` — web search (requires provider key)
-- [ ] `QuestionTool` — ask the user a question, block until answered
-- [ ] `ApplyPatchTool` — apply a unified diff
-- [ ] `ApplyUnifiedDiffTool` — apply a fenced unified diff block
-- [ ] `TodoWriteTool` — write structured TODOs
-- [ ] `SkillTool` — invoke a named skill
-- [ ] `HttpBodyTool` — fetch raw HTTP body
-- [ ] `ReadFilesystemTool` — directory listing with stat info
-- [ ] `LspTool` — LSP diagnostics / hover / references
-- [ ] `McpWebsearchTool` — web search via an MCP server
-- [ ] `AgentTool` — spawn a sub-agent
-- [ ] `TaskTool` — create / update tasks in-session
+- [x] `BashTool` — shell command execution with timeout, output streaming
+- [x] `ReadTool` — file read with line range support
+- [x] `WriteTool` — atomic file write
+- [x] `EditTool` — exact string replacement with uniqueness check
+- [x] `GlobTool` — file pattern matching
+- [x] `GrepTool` — ripgrep / regex file search
+- [x] `WebFetchTool` — HTTP fetch with content extraction
+- [x] `WebSearchTool` — web search (requires provider key)
+- [x] `QuestionTool` — ask the user a question, block until answered
+- [x] `ApplyPatchTool` — apply a unified diff
+- [x] `ApplyUnifiedDiffTool` — apply a fenced unified diff block
+- [x] `TodoWriteTool` — write structured TODOs
+- [x] `SkillTool` — invoke a named skill
+- [x] `HttpBodyTool` — bounded HTTP response body collector (utility, not a user-facing tool)
+- [x] `ReadFilesystemTool` — directory listing with stat info
+- [x] `LspTool` — LSP diagnostics / hover / references
+- [x] `McpWebsearchTool` — web search via an MCP server
+- [x] `AgentTool` — spawn a sub-agent
+- [x] `TaskTool` — create / update tasks in-session
 
 ---
 
 ## CLI command implementations
 
-The command files exist and have yargs wiring, but several are stubs that print nothing or `TODO`.
+All command files are implemented. One placeholder remains:
 
-- [ ] `RunCommand` — `gcloud-opencode run "prompt"` non-interactive single-shot mode; needs to run `SessionRunner` and stream output to stdout
-- [ ] `ExportCommand` — wire to `SessionExporter`, stream progress, print resulting `gs://` URI
-- [ ] `ImportCommand` — wire to `SessionImporter`
-- [ ] `DbCommand` — show Firestore collection counts / recent docs (debug helper)
-- [ ] `GenerateCommand` — unclear purpose; clarify or remove
-- [ ] `UninstallCommand` — remove config, credentials, local state
-- [ ] `UpgradeCommand` — check for newer version, self-update
-- [ ] `DebugCommand` — dump runtime config, connection status
-- [ ] `PromptDisplayCommand` — render a prompt template for inspection
-
-Commands known to be real: `TuiCommand`, `SessionCommand` (list/delete), `AgentCommand`, `McpCommand`, `ProvidersCommand`, `ModelsCommand`.
+- [x] `RunCommand` — `lotus-code run "prompt"` non-interactive single-shot mode
+- [x] `ExportCommand` — wired to `SessionExporter`, prints resulting `gs://` URI
+- [x] `ImportCommand` — wired to `SessionImporter`
+- [x] `DbCommand` — prints Firestore project/collection config (`path` subcommand)
+- [x] `GenerateCommand` — generates content via a provider model
+- [x] `UninstallCommand` — removes config, credentials, local state
+- [x] `UpgradeCommand` — checks for newer version, self-updates
+- [x] `DebugCommand` — dumps runtime config, agent registry, paths, env info
+- [x] `PromptDisplayCommand` — renders a prompt template for inspection
+- [ ] `lotus-code session delete` — `SessionCommand` has the subcommand wired but the handler prints a placeholder; `SessionController` / `ISessionRepository.archive()` exists but is not called
 
 ---
 
 ## TUI wiring
 
-The TUI package (`view/tui`) exists but it needs to be connected to `SessionRunner` so that live events (text deltas, tool progress) stream into the UI in real time.
+The TUI package (`view/tui`) exists but it needs to be connected to `SessionRunner` so that live events (text deltas, tool progress) stream into the UI in real time. Currently `tui-server.ts` only surfaces `step.ended` / `step.failed` — not the streaming deltas.
 
 - [ ] Wire `SessionRunner` event stream to TUI context providers
 - [ ] `session.next.text.delta` → render streaming text in message view
@@ -83,7 +82,7 @@ The TUI package (`view/tui`) exists but it needs to be connected to `SessionRunn
 
 ## Session metadata
 
-- [ ] **Cost tracking** — `cost: 0` is hardcoded in every `step.ended` event. Wire actual token pricing per model to compute and accumulate real cost in the session doc.
+- [ ] **Cost tracking** — `cost: 0` is hardcoded in `SessionRunner`, `SessionController`, and `SessionImporter`. Wire actual token pricing per model to compute and accumulate real cost in the session doc.
 - [ ] **Title auto-generation** — after the first assistant turn, fire the `title` agent (from `AgentRegistry`) with the first user message. Write the result back to `SessionRepository.update()`. Currently session titles are all `"New session - {ISO date}"`.
 - [ ] **Session summary** — the `summary` agent exists but is never triggered.
 
@@ -91,14 +90,14 @@ The TUI package (`view/tui`) exists but it needs to be connected to `SessionRunn
 
 ## Test suite
 
-Zero tests exist. Highest-value tests to write first:
+Tests exist but several key scenarios from the original list are not yet covered:
 
-- [ ] `SessionRunner` round-trip — create session, append prompt event, run, assert `step.ended` event written to `InMemoryEventRepository`
-- [ ] `projectMessages()` — replay a canned event log, assert correct `SessionMessage[]` output
-- [ ] Compaction boundary — append a `compaction.ended` event, assert `loadFromCompaction` returns only events from that seq forward
-- [ ] `FirestoreEventRepository` — integration test against Firestore emulator: append → load → loadFromCompaction, assert `lastCompactionSeq` is written
-- [ ] `GoogleIdentity` — mock the userinfo endpoint, assert the service returns the correct email
-- [ ] Tool permission enforcer — stub `IPermissionRepository` with a pre-saved always-allow rule, assert tool executes without prompt
+- [x] `SessionRunner` round-trip — `session.test.ts` covers create → run → `step.ended`
+- [x] Tool permission enforcer — `permission.test.ts` covers allow/deny/wildcard rules
+- [ ] `projectMessages()` — no tests replay a canned event log and assert `SessionMessage[]` output
+- [ ] Compaction boundary — no test appends a `compaction.ended` event and asserts `loadFromCompaction` returns only events from that seq forward
+- [ ] `FirestoreEventRepository` — no integration test against Firestore emulator
+- [ ] `GoogleIdentity` — no test mocks the userinfo endpoint
 
 ---
 
@@ -145,7 +144,7 @@ Currently no Firestore security rules are defined. Anyone with the GCP project I
 
 ## Miscellaneous
 
-- [ ] `gcloud-opencode session delete` — the command exists but the delete logic in `SessionController` / `ISessionRepository` is not implemented
+- [ ] Structured logging — `CloudLogger` is wired into the GCP layer but no controller calls it yet; add log calls at key lifecycle points (session start, LLM turn, tool execution, compaction)
 - [ ] `SessionImporter` — verify import from `gs://` URI fully reconstructs event log
 - [ ] `SessionExporter` — verify markdown and JSON export formats match what `session list` shows
-- [ ] Structured logging — `CloudLogger` is wired into `cloud` but nothing calls it yet; add log calls at key lifecycle points (session start, LLM turn, tool execution, compaction)
+- [ ] `DbCommand` collection counts — current `db path` only prints config; add a `db counts` subcommand showing live Firestore document counts per collection

@@ -54,6 +54,7 @@ import {
 import { Service as ToolRegistry } from "@gco/controller-tool/ToolRegistry"
 import { Service as ToolPermissionEnforcer } from "@gco/controller-tool/ToolPermissionEnforcer"
 import { PROMPT_COMPACTION, PROMPT_TITLE } from "@gco/controller-agent/AgentRegistry"
+import { AgentService } from "@gco/controller-agent"
 import { ModelResolver, ModelNotResolvedError } from "./ModelResolver"
 
 // ---------------------------------------------------------------------------
@@ -1336,6 +1337,7 @@ export const layer = Layer.effect(
     const toolRegistry = yield* Effect.service(ToolRegistry)
     const modelResolver = yield* Effect.service(ModelResolver)
     const enforcer = yield* Effect.service(ToolPermissionEnforcer)
+    const agentController = yield* Effect.service(AgentService)
 
     // Active interrupt signals — one per session
     const activeInterrupts = new Map<Session.ID, () => void>()
@@ -1472,16 +1474,23 @@ export const layer = Layer.effect(
       // Determine step limit
       const isLastStep = step >= DEFAULT_MAX_STEPS
 
-      // Materialize tools (none on last step)
-      const toolMaterialization = isLastStep ? undefined : yield* toolRegistry.materialize()
+      // Resolve agent info for system prompt + permission-filtered tool list
+      const agentInfo = yield* agentController.resolve(session.agent)
 
-      // System prompt
-      const systemPrompt = [
-        session.agent !== undefined ? `Agent: ${session.agent}.` : "",
-        `You are a helpful AI assistant. Answer the user's requests completely and accurately.`,
-      ]
-        .filter(Boolean)
-        .join("\n")
+      // Materialize tools filtered by the agent's permission ruleset (none on last step)
+      const toolMaterialization = isLastStep
+        ? undefined
+        : yield* toolRegistry.materialize(agentInfo?.permissions as any)
+
+      // Use the agent's declared system prompt, falling back to a generic one
+      const systemPrompt =
+        agentInfo?.system ??
+        [
+          session.agent !== undefined ? `Agent: ${session.agent}.` : "",
+          `You are a helpful AI assistant. Answer the user's requests completely and accurately.`,
+        ]
+          .filter(Boolean)
+          .join("\n")
 
       // Build LLM messages
       const llmMessages: Message[] = [

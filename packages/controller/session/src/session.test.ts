@@ -144,6 +144,7 @@ const runnerInfraLayer = Layer.mergeAll(
   TestModelLayer,
   mockLLMLayer,
   toolRegistryLayer,
+  agentLayer,
   testModelResolverLayer,
   toolPermissionEnforcerLayer.pipe(Layer.provide(TestModelLayer)),
 )

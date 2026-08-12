@@ -1,6 +1,6 @@
 /**
  * AgentRegistry — loads and merges built-in agent definitions with any
- * user-supplied overrides read from opencode.json (or equivalent config).
+ * user-supplied overrides read from lotus-code.json (or equivalent config).
  *
  * Ported from:
  *   packages/core/src/plugin/agent.ts   — built-in agents + system prompts
@@ -45,7 +45,7 @@ Always follow the exact output structure requested by the user prompt. Keep ever
 
 Do not answer the conversation itself. Do not mention that you are summarizing, compacting, or merging context. Respond in the same language as the conversation.`
 
-const PROMPT_TITLE = `You are a title generator. You output ONLY a thread title. Nothing else.
+export const PROMPT_TITLE = `You are a title generator. You output ONLY a thread title. Nothing else.
 
 <task>
 Generate a brief title that would help the user find this conversation later.
@@ -267,7 +267,7 @@ export function builtInAgents(): Map<Agent.ID, Agent.Info> {
 }
 
 // ---------------------------------------------------------------------------
-// Agent override shape (from opencode.json / project config)
+// Agent override shape (from lotus-code.json / project config)
 // ---------------------------------------------------------------------------
 
 export interface AgentOverride {
@@ -284,7 +284,7 @@ export interface AgentOverride {
 /**
  * Merge user-supplied overrides on top of the built-in agents map.
  *
- * @param overrides  Record read from the `agents` block of opencode.json.
+ * @param overrides  Record read from the `agents` block of lotus-code.json.
  * @returns          A new Map merging built-ins with user overrides.
  */
 export function merge(overrides: Record<string, AgentOverride>): Map<Agent.ID, Agent.Info> {

@@ -1,5 +1,5 @@
 /**
- * bootstrap.ts — Effect Layer compositions for gcloud-opencode.
+ * bootstrap.ts — Effect Layer compositions for lotus-code.
  *
  * Two exported layers:
  *   ProductionLayer — real GCP services (Firestore, Secret Manager, Vertex AI)
@@ -24,7 +24,9 @@ import {
 } from "@gco/cloud"
 
 // LLM providers
+import * as AnthropicProvider from "@gco/llm/providers/anthropic"
 import * as DeepSeekProvider from "@gco/llm/providers/deepseek"
+import * as OllamaProvider from "@gco/llm/providers/ollama"
 
 // Model layer
 import { FirestoreModelLayer } from "@gco/model-firestore"
@@ -42,7 +44,18 @@ import {
 } from "@gco/controller-session"
 import { agentLayer } from "@gco/controller-agent"
 import { mcpLayer, mcpAuthLayer } from "@gco/controller-mcp"
-import { toolRegistryLayer, toolPermissionEnforcerLayer } from "@gco/controller-tool"
+import {
+  toolRegistryLayer,
+  toolPermissionEnforcerLayer,
+  ToolRegistryService,
+  BashTool,
+  ReadTool,
+  GlobTool,
+  GrepTool,
+  EditTool,
+  WebFetchTool,
+  ApplyPatchTool,
+} from "@gco/controller-tool"
 
 // LLM infrastructure
 import { LLMClient, type LLMClientService } from "@gco/llm"
@@ -84,6 +97,23 @@ const multiProviderModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConf
         const apiKey = process.env.DEEPSEEK_API_KEY
         const ds = DeepSeekProvider.configure({ apiKey })
         return Effect.succeed(ds.model(modelId) as unknown as Model)
+      }
+
+      const isAnthropic =
+        providerID === "anthropic" ||
+        modelId.startsWith("claude")
+
+      if (isAnthropic) {
+        const apiKey = process.env.ANTHROPIC_API_KEY
+        const ap = AnthropicProvider.configure({ apiKey })
+        return Effect.succeed(ap.model(modelId) as unknown as Model)
+      }
+
+      const isOllama = providerID === "ollama"
+
+      if (isOllama) {
+        const ol = OllamaProvider.configure()
+        return Effect.succeed(ol.model(modelId) as unknown as Model)
       }
 
       return Effect.succeed(vertexProvider.model(modelId) as unknown as Model)
@@ -131,6 +161,26 @@ const modelReposLayer = Layer.mergeAll(
   SecretsModelLayer,
 ).pipe(Layer.provide(Layer.merge(gcpServicesLayer, GcpConfig.layer)))
 
+// Provides ToolRegistryService AND registers built-in tools on startup.
+// Layer.merge deduplicates toolRegistryLayer so both sides share the same instance.
+const builtinToolsLayer = Layer.merge(
+  toolRegistryLayer,
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistryService
+      yield* registry.register({
+        bash: BashTool.tool,
+        read: ReadTool.tool,
+        glob: GlobTool.tool,
+        grep: GrepTool.tool,
+        edit: EditTool.tool,
+        web_fetch: WebFetchTool.tool,
+        apply_patch: ApplyPatchTool.tool,
+      })
+    }),
+  ).pipe(Layer.provide(toolRegistryLayer)),
+)
+
 // Infrastructure available to all controllers (everything except SessionRunner itself).
 const infraLayer = Layer.mergeAll(
   GcpConfig.layer,
@@ -138,7 +188,7 @@ const infraLayer = Layer.mergeAll(
   modelReposLayer,
   llmClientLayer,
   agentLayer,
-  toolRegistryLayer,
+  builtinToolsLayer,
   mcpAuthLayer,
 )
 

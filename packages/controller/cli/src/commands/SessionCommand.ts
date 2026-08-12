@@ -11,6 +11,7 @@ import { EOL } from "node:os"
 import { Effect } from "effect"
 import { formatSessionList, formatSessionDetail, color, type SessionInfo } from "@gco/view-cli"
 import { SessionController, NotFoundError } from "@gco/controller-session"
+import { SessionRepository } from "@gco/model-domain"
 import type { Session } from "@gco/schema"
 import { ProductionLayer } from "../bootstrap.js"
 
@@ -155,6 +156,8 @@ const SessionDeleteCommand: CommandModule<object, DeleteArgs> = {
       Effect.gen(function* () {
         const controller = yield* SessionController
 
+        const sessionRepo = yield* SessionRepository
+
         // Verify it exists first
         yield* controller
           .get(args.sessionID as unknown as Session.ID)
@@ -166,14 +169,13 @@ const SessionDeleteCommand: CommandModule<object, DeleteArgs> = {
             ),
           )
 
-        // There is no delete in the current SessionController interface.
-        // We log a placeholder until the controller exposes a delete method.
-        process.stderr.write(
-          color.yellow("Warning: ") +
-            "Session delete is not yet implemented in this build. SessionID: " +
-            args.sessionID +
-            EOL,
-        )
+        // Interrupt any running turn, then archive the session
+        yield* controller
+          .interrupt(args.sessionID as unknown as Session.ID)
+          .pipe(Effect.catchCause(() => Effect.void))
+        yield* sessionRepo.archive(args.sessionID as unknown as Session.ID)
+
+        process.stdout.write(`Deleted session ${args.sessionID}` + EOL)
       }).pipe(
         Effect.catch((err: unknown) => {
           process.stderr.write(

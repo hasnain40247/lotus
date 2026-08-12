@@ -1,7 +1,7 @@
 /**
  * SessionRunner — LLM turn orchestrator.
  *
- * Ported from @opencode-cli/packages/core/src/session/runner/llm.ts.
+ * Ported from @lotus-code/packages/core/src/session/runner/llm.ts.
  *
  * Responsibilities:
  *   1. Load session info from ISessionRepository
@@ -43,7 +43,7 @@ import {
   type ToolResultValue,
   type Usage,
 } from "@gco/llm"
-import { Session, SessionMessage } from "@gco/schema"
+import { Event, Session, SessionMessage } from "@gco/schema"
 import type { ContentPart, Model } from "@gco/llm"
 import {
   EventRepository,
@@ -52,7 +52,7 @@ import {
   type IEventRepository,
 } from "@gco/model-domain"
 import { Service as ToolRegistry } from "@gco/controller-tool/ToolRegistry"
-import { PROMPT_COMPACTION } from "@gco/controller-agent/AgentRegistry"
+import { PROMPT_COMPACTION, PROMPT_TITLE } from "@gco/controller-agent/AgentRegistry"
 import { ModelResolver, ModelNotResolvedError } from "./ModelResolver"
 
 // ---------------------------------------------------------------------------
@@ -68,6 +68,48 @@ const COMPACTION_TOKEN_THRESHOLD = 100_000
 
 // Number of recent messages kept verbatim (not summarized) during compaction.
 const COMPACTION_RECENT_MESSAGES = 4
+
+// ---------------------------------------------------------------------------
+// Token pricing (USD per million tokens)
+// ---------------------------------------------------------------------------
+
+interface PriceEntry {
+  readonly input: number
+  readonly output: number
+  readonly cacheRead: number
+  readonly cacheWrite: number
+}
+
+const TOKEN_PRICING: Record<string, PriceEntry> = {
+  "deepseek-chat":        { input: 0.27,  output: 1.10,  cacheRead: 0.07, cacheWrite: 1.00  },
+  "deepseek-coder":       { input: 0.27,  output: 1.10,  cacheRead: 0.07, cacheWrite: 1.00  },
+  "deepseek-reasoner":    { input: 0.55,  output: 2.19,  cacheRead: 0.14, cacheWrite: 2.00  },
+  "claude-opus-4":        { input: 15.00, output: 75.00, cacheRead: 1.50, cacheWrite: 18.75 },
+  "claude-sonnet-4":      { input: 3.00,  output: 15.00, cacheRead: 0.30, cacheWrite: 3.75  },
+  "claude-haiku-4":       { input: 0.80,  output: 4.00,  cacheRead: 0.08, cacheWrite: 1.00  },
+  "claude-3-5-sonnet":    { input: 3.00,  output: 15.00, cacheRead: 0.30, cacheWrite: 3.75  },
+  "claude-3-5-haiku":     { input: 0.80,  output: 4.00,  cacheRead: 0.08, cacheWrite: 1.00  },
+  "claude-3-opus":        { input: 15.00, output: 75.00, cacheRead: 1.50, cacheWrite: 18.75 },
+  "gemini-2.5-pro":       { input: 1.25,  output: 10.00, cacheRead: 0.31, cacheWrite: 4.50  },
+  "gemini-2.5-flash":     { input: 0.30,  output: 2.50,  cacheRead: 0.075,cacheWrite: 1.00  },
+  "gemini-1.5-pro":       { input: 1.25,  output: 5.00,  cacheRead: 0.31, cacheWrite: 1.25  },
+}
+
+function computeStepCost(
+  modelId: string,
+  tokens: { input: number; output: number; cache: { read: number; write: number } },
+): number {
+  const key = Object.keys(TOKEN_PRICING).find((k) => modelId.includes(k) || k.includes(modelId))
+  const entry = key ? TOKEN_PRICING[key] : undefined
+  if (!entry) return 0
+  const M = 1_000_000
+  return (
+    (tokens.input / M) * entry.input +
+    (tokens.output / M) * entry.output +
+    (tokens.cache.read / M) * entry.cacheRead +
+    (tokens.cache.write / M) * entry.cacheWrite
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Interface
@@ -779,9 +821,10 @@ function createEventPublisher(
     assistantMessageID = SessionMessage.ID.create()
     assistantActive = true
     const ts = yield* DateTime.now
+    process.stderr.write(`[runner:startAssistant] writing step.started for ${input.sessionID}\n`)
     yield* appendDurable([
       {
-        id: assistantMessageID as unknown as SessionEvent.DurableEvent["id"],
+        id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
         type: "session.next.step.started",
         durable,
         data: {
@@ -794,6 +837,7 @@ function createEventPublisher(
         },
       } as unknown as SessionEvent.DurableEvent,
     ])
+    process.stderr.write(`[runner:startAssistant] step.started written OK\n`)
     return assistantMessageID
   })
 
@@ -810,7 +854,7 @@ function createEventPublisher(
     const ts = yield* DateTime.now
     yield* appendDurable([
       {
-        id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+        id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
         type: "session.next.step.failed",
         durable,
         data: {
@@ -835,7 +879,7 @@ function createEventPublisher(
       const ts = yield* DateTime.now
       yield* appendDurable([
         {
-          id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
           type: "session.next.tool.failed",
           durable,
           data: {
@@ -865,7 +909,7 @@ function createEventPublisher(
       const ts = yield* DateTime.now
       yield* appendDurable([
         {
-          id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
           type: "session.next.text.ended",
           durable,
           data: { sessionID: input.sessionID, timestamp: ts, assistantMessageID: msgID, textID, text },
@@ -881,7 +925,7 @@ function createEventPublisher(
       const ts = yield* DateTime.now
       yield* appendDurable([
         {
-          id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
           type: "session.next.reasoning.ended",
           durable,
           data: {
@@ -906,7 +950,7 @@ function createEventPublisher(
       const ts = yield* DateTime.now
       yield* appendDurable([
         {
-          id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
           type: "session.next.tool.input.ended",
           durable,
           data: {
@@ -941,7 +985,7 @@ function createEventPublisher(
     toolInputChunks.set(event.id, [])
     yield* appendDurable([
       {
-        id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+        id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
         type: "session.next.tool.input.started",
         durable,
         data: {
@@ -973,7 +1017,7 @@ function createEventPublisher(
     const ts = yield* DateTime.now
     yield* appendDurable([
       {
-        id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+        id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
         type: "session.next.tool.input.ended",
         durable,
         data: {
@@ -1016,7 +1060,7 @@ function createEventPublisher(
         const ts = yield* DateTime.now
         yield* appendDurable([
           {
-            id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+            id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
             type: "session.next.text.started",
             durable,
             data: { sessionID: input.sessionID, timestamp: ts, assistantMessageID: msgID, textID: event.id },
@@ -1040,7 +1084,7 @@ function createEventPublisher(
         const ts = yield* DateTime.now
         yield* appendDurable([
           {
-            id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+            id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
             type: "session.next.text.ended",
             durable,
             data: { sessionID: input.sessionID, timestamp: ts, assistantMessageID: msgID, textID: event.id, text },
@@ -1055,7 +1099,7 @@ function createEventPublisher(
         const ts = yield* DateTime.now
         yield* appendDurable([
           {
-            id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+            id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
             type: "session.next.reasoning.started",
             durable,
             data: {
@@ -1085,7 +1129,7 @@ function createEventPublisher(
         const ts = yield* DateTime.now
         yield* appendDurable([
           {
-            id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+            id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
             type: "session.next.reasoning.ended",
             durable,
             data: {
@@ -1136,7 +1180,7 @@ function createEventPublisher(
         const ts = yield* DateTime.now
         yield* appendDurable([
           {
-            id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+            id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
             type: "session.next.tool.called",
             durable,
             data: {
@@ -1175,7 +1219,7 @@ function createEventPublisher(
         if ("error" in settled) {
           yield* appendDurable([
             {
-              id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+              id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
               type: "session.next.tool.failed",
               durable,
               data: {
@@ -1193,7 +1237,7 @@ function createEventPublisher(
         }
         yield* appendDurable([
           {
-            id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+            id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
             type: "session.next.tool.success",
             durable,
             data: {
@@ -1221,7 +1265,7 @@ function createEventPublisher(
         const ts = yield* DateTime.now
         yield* appendDurable([
           {
-            id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+            id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
             type: "session.next.tool.failed",
             durable,
             data: {
@@ -1350,7 +1394,7 @@ export const layer = Layer.effect(
       const tsStart = yield* DateTime.now
       yield* eventRepo.append(sessionID, [
         {
-          id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
           type: "session.next.compaction.started",
           durable,
           data: { sessionID, timestamp: tsStart, messageID, reason },
@@ -1380,7 +1424,7 @@ export const layer = Layer.effect(
 
       yield* eventRepo.append(sessionID, [
         {
-          id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
           type: "session.next.compaction.ended",
           durable,
           data: {
@@ -1409,14 +1453,19 @@ export const layer = Layer.effect(
       sessionID: Session.ID,
       step: number,
     ) {
+      process.stderr.write(`[runner:turn] getSession ${sessionID}\n`)
       const session = yield* getSession(sessionID)
 
       // Resolve LLM model for this session
+      process.stderr.write(`[runner:turn] resolving model for ${sessionID}\n`)
       const model = yield* modelResolver.resolve(session)
+      process.stderr.write(`[runner:turn] model resolved: ${model.id}@${model.provider}\n`)
 
       // Load history from last compaction boundary
+      process.stderr.write(`[runner:turn] loadFromCompaction ${sessionID}\n`)
       const events = yield* eventRepo.loadFromCompaction(sessionID)
       const history = projectMessages(events)
+      process.stderr.write(`[runner:turn] history=${history.length} msgs, streaming LLM...\n`)
 
       // Determine step limit
       const isLastStep = step >= DEFAULT_MAX_STEPS
@@ -1553,10 +1602,12 @@ export const layer = Layer.effect(
           if (settlement !== undefined && !publisher.hasProviderError()) {
             const ts = yield* DateTime.now
             const msgID = yield* publisher.startAssistant()
+            const stepTokens = settlement.tokens
+            const stepCost = computeStepCost(model.id, stepTokens)
             yield* eventRepo
               .append(sessionID, [
                 {
-                  id: SessionMessage.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+                  id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
                   type: "session.next.step.ended",
                   durable: undefined as unknown as SessionEvent.DurableEvent["durable"],
                   data: {
@@ -1564,14 +1615,32 @@ export const layer = Layer.effect(
                     timestamp: ts,
                     assistantMessageID: msgID,
                     finish: settlement.finish,
-                    cost: 0,
-                    tokens: settlement.tokens,
+                    cost: stepCost,
+                    tokens: stepTokens,
                     snapshot: undefined,
                     files: undefined,
                   },
                 } as unknown as SessionEvent.DurableEvent,
               ])
               .pipe(Effect.catchCause(() => Effect.void))
+            // Accumulate tokens + cost into the session doc
+            yield* getSession(sessionID).pipe(
+              Effect.flatMap((current) =>
+                sessions.update(sessionID, {
+                  tokens: {
+                    input:    (current.tokens?.input    ?? 0) + stepTokens.input,
+                    output:   (current.tokens?.output   ?? 0) + stepTokens.output,
+                    reasoning:(current.tokens?.reasoning ?? 0) + stepTokens.reasoning,
+                    cache: {
+                      read:  (current.tokens?.cache?.read  ?? 0) + stepTokens.cache.read,
+                      write: (current.tokens?.cache?.write ?? 0) + stepTokens.cache.write,
+                    },
+                  },
+                  cost: (current.cost ?? 0) + stepCost,
+                }),
+              ),
+              Effect.catchCause(() => Effect.void),
+            )
           }
 
           if (publisher.hasProviderError()) {
@@ -1603,23 +1672,30 @@ export const layer = Layer.effect(
     // ── run loop ─────────────────────────────────────────────────────────
 
     const run = Effect.fn("SessionRunner.run")(function* (input: RunInput) {
+      process.stderr.write(`[runner:run] loading events for ${input.sessionID}\n`)
       // Check whether there is any admitted prompt to work from
       const events = yield* eventRepo.load(input.sessionID)
-      const hasPendingPrompt = events.some((e) => {
-        const type = (e as unknown as { type: string }).type
-        return (
-          type === "session.next.prompt.admitted" ||
-          type === "session.next.prompted"
-        )
-      })
+      const countAdmitted = (evts: typeof events) =>
+        evts.filter((e) => {
+          const type = (e as unknown as { type: string }).type
+          return type === "session.next.prompt.admitted" || type === "session.next.prompted"
+        }).length
+      const initialAdmittedCount = countAdmitted(events)
+      const hasPendingPrompt = initialAdmittedCount > 0
+      process.stderr.write(`[runner:run] ${events.length} events, hasPendingPrompt=${hasPendingPrompt}\n`)
 
       if (!input.force && !hasPendingPrompt) return
 
       let step = 1
       let needsContinuation = true
+      // Track how many admitted prompts we started with so we only re-run when
+      // a NEW prompt arrives during the turn (not the original one we already handled).
+      let knownAdmittedCount = initialAdmittedCount
 
       while (needsContinuation) {
+        process.stderr.write(`[runner:run] starting runTurn step=${step} for ${input.sessionID}\n`)
         const result = yield* runTurn(input.sessionID, step)
+        process.stderr.write(`[runner:run] runTurn done step=${step}, needsContinuation=${result.needsContinuation}\n`)
 
         // Reactive compaction: context overflow — compact then retry the turn
         if (result.overflowOccurred) {
@@ -1638,18 +1714,38 @@ export const layer = Layer.effect(
         step = result.step + 1
 
         if (!needsContinuation) {
-          // Check if a steer prompt was admitted while this turn ran
+          // Only continue if a NEW steer prompt arrived during this turn
           const fresh = yield* eventRepo.load(input.sessionID)
-          const pendingSteer = fresh.some((e) => {
-            const type = (e as unknown as { type: string }).type
-            return type === "session.next.prompt.admitted"
-          })
-          if (pendingSteer) {
+          const freshAdmittedCount = countAdmitted(fresh)
+          if (freshAdmittedCount > knownAdmittedCount) {
             needsContinuation = true
             step = 1
+            knownAdmittedCount = freshAdmittedCount
           }
         }
       }
+
+      // Auto-generate title after the first complete turn if still using the default
+      void (yield* Effect.gen(function* () {
+        const session = yield* getSession(input.sessionID)
+        if (!session.title.startsWith("New session -")) return
+        const model = yield* modelResolver.resolve(session)
+        const allEvents = yield* eventRepo.load(input.sessionID)
+        const firstUserText = allEvents
+          .map((e) => e as unknown as { type: string; data: Record<string, any> })
+          .find((e) => e.type === "session.next.prompt.admitted" || e.type === "session.next.prompted")
+          ?.data?.prompt?.text ?? ""
+        if (!firstUserText) return
+        const request = new LLMRequest({
+          model,
+          system: [SystemPart.make(PROMPT_TITLE)],
+          messages: [Message.user(firstUserText)],
+          tools: [],
+        })
+        const response = yield* llmClient.generate(request)
+        const title = response?.text?.trim().slice(0, 50) ?? ""
+        if (title) yield* sessions.update(input.sessionID, { title })
+      }).pipe(Effect.catchCause(() => Effect.void), Effect.forkDetach))
     })
 
     // ── interrupt ────────────────────────────────────────────────────────

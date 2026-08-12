@@ -6,21 +6,8 @@ Things that still need to be built. Roughly priority order within each section.
 
 ## 🚨 Blockers
 
-- [ ] **Enable GCP APIs** — Firestore, Secret Manager, Cloud Storage, and Cloud Logging APIs must be enabled in project `gen-lang-client-0983206083` before sessions can be created or stored:
-  ```bash
-  gcloud services enable \
-    firestore.googleapis.com \
-    secretmanager.googleapis.com \
-    storage.googleapis.com \
-    logging.googleapis.com \
-    --project gen-lang-client-0983206083
-  ```
-- [ ] **Create Firestore database** — must be in native mode in `us-central1`:
-  ```bash
-  gcloud firestore databases create \
-    --location=us-central1 \
-    --project gen-lang-client-0983206083
-  ```
+- [x] **Enable GCP APIs** — Firestore, Secret Manager, Cloud Storage, and Cloud Logging enabled on `gen-lang-client-0983206083`
+- [x] **Create Firestore database** — native mode in `us-central1` on `gen-lang-client-0983206083`
 
 ---
 
@@ -63,28 +50,35 @@ All command files are implemented. One placeholder remains:
 - [x] `UpgradeCommand` — checks for newer version, self-updates
 - [x] `DebugCommand` — dumps runtime config, agent registry, paths, env info
 - [x] `PromptDisplayCommand` — renders a prompt template for inspection
-- [ ] `lotus-code session delete` — `SessionCommand` has the subcommand wired but the handler prints a placeholder; `SessionController` / `ISessionRepository.archive()` exists but is not called
+- [x] `lotus-code session delete` — calls `SessionController.interrupt()` then `SessionRepository.archive()`, prints confirmation
 
 ---
 
 ## TUI wiring
 
-The TUI package (`view/tui`) exists but it needs to be connected to `SessionRunner` so that live events (text deltas, tool progress) stream into the UI in real time. Currently `tui-server.ts` only surfaces `step.ended` / `step.failed` — not the streaming deltas.
+The core REST endpoints are now wired. Remaining gaps:
 
-- [ ] Wire `SessionRunner` event stream to TUI context providers
-- [ ] `session.next.text.delta` → render streaming text in message view
-- [ ] `session.next.tool.input.delta` → show live tool input
-- [ ] `session.next.compaction.started/ended` → show compaction indicator
-- [ ] Permission prompt (from `QuestionTool` / `ToolPermissionEnforcer`) → TUI dialog
-- [ ] Interrupt (Ctrl-C) → call `SessionController.interrupt()`
+- [x] `POST /session/{id}/abort` → `SessionController.interrupt()`
+- [x] `DELETE /session/{id}` → archive + broadcasts `session.deleted` SSE
+- [x] `PATCH /session/{id}` → `SessionRepository.update()` (title rename)
+- [x] `POST /session/{id}/fork` → creates new session from parent params
+- [x] `POST /session/{id}/revert/stage` → in-memory staging
+- [x] `POST /session/{id}/revert/commit` → `SessionController.revert()`
+- [x] `POST /session/{id}/revert/clear` → clears staged revert
+- [ ] `POST /session/{id}/unrevert` → genuinely not implementable: `revert` destructively truncates the event log with no backup; would need a revert-stack or snapshot mechanism
+- [ ] **Streaming deltas** — `session.next.text.delta` and `session.next.tool.input.delta` are live-only in `SessionRunner` (never persisted to Firestore), so the SSE poller never sees them. Need a direct in-process pub/sub channel from `SessionRunner` → `broadcastSSE` to render streaming text and tool input in real time.
+- [x] `session.next.compaction.started/ended` → already emitted by `runCompactionImpl` in `SessionRunner` around the summary LLM call
+- [x] `QuestionTool` wiring — `QuestionStore` created on TUI startup, registered in tool registry, exposed via `GET /v2/session/{id}/question`, `POST .../reply`, `POST .../reject`
+- [ ] Permission prompt — `ToolPermissionEnforcer` isn't wired into `SessionRunner` tool execution at all; tools run without permission checks. Full fix requires intercepting the `"ask"` response in the turn loop and suspending until HTTP layer replies.
 
 ---
 
 ## Session metadata
 
-- [ ] **Cost tracking** — `cost: 0` is hardcoded in `SessionRunner`, `SessionController`, and `SessionImporter`. Wire actual token pricing per model to compute and accumulate real cost in the session doc.
-- [ ] **Title auto-generation** — after the first assistant turn, fire the `title` agent (from `AgentRegistry`) with the first user message. Write the result back to `SessionRepository.update()`. Currently session titles are all `"New session - {ISO date}"`.
-- [ ] **Session summary** — the `summary` agent exists but is never triggered.
+- [x] **Cost tracking** — `SessionRunner` now computes per-step USD cost from a pricing table (DeepSeek, Anthropic, Gemini) and accumulates `tokens` + `cost` into the session doc via `SessionRepository.update()` after every step
+- [x] **Title auto-generation** — after the run loop completes, a detached fiber calls the LLM with `PROMPT_TITLE` + the first user message and writes the result back via `SessionRepository.update()` if the title is still the default `"New session - …"`
+- [ ] **Session summary** — `summary` agent and `PROMPT_SUMMARY` exist but nowhere to store the result: `Session.Info` has no `summary`/`subtitle` field; requires schema change before this can be wired
+- [ ] **`SessionImporter` cost** — export format doesn't preserve per-message token counts, so cost stays 0 on import; would need to add token fields to the export schema to fix
 
 ---
 
@@ -94,8 +88,8 @@ Tests exist but several key scenarios from the original list are not yet covered
 
 - [x] `SessionRunner` round-trip — `session.test.ts` covers create → run → `step.ended`
 - [x] Tool permission enforcer — `permission.test.ts` covers allow/deny/wildcard rules
+- [x] Compaction boundary — `repositories.test.ts` covers `loadFromCompaction` with no boundary, single boundary, and last-boundary-wins cases
 - [ ] `projectMessages()` — no tests replay a canned event log and assert `SessionMessage[]` output
-- [ ] Compaction boundary — no test appends a `compaction.ended` event and asserts `loadFromCompaction` returns only events from that seq forward
 - [ ] `FirestoreEventRepository` — no integration test against Firestore emulator
 - [ ] `GoogleIdentity` — no test mocks the userinfo endpoint
 
@@ -124,12 +118,12 @@ Layer boundary violations (e.g. `view/*` importing `cloud`) are currently not en
 
 ## Provider auth flows
 
-`ProvidersCommand` exists with `login` / `logout` subcommands but the actual auth logic per provider needs verification:
-
-- [ ] Anthropic — API key prompt → Secret Manager create/update
-- [ ] DeepSeek — API key prompt → Secret Manager create/update
-- [ ] Vertex AI — no separate auth needed (uses ADC), but should show the current GCP project and model availability
-- [ ] Ollama — ping localhost, show running models
+- [x] DeepSeek — `providers login deepseek` stores API key in `CredentialRepository`; TUI startup loads it into `DEEPSEEK_API_KEY` env var; `ModelResolver` reads from env
+- [x] Anthropic — same flow via `ANTHROPIC_API_KEY`; `ModelResolver` routes `claude*` / `anthropic` provider ID to `AnthropicProvider`
+- [x] Ollama — `ModelResolver` routes `ollama` provider ID to `OllamaProvider` (no auth needed)
+- [x] Vertex AI — uses ADC automatically; `ModelResolver` falls through to `VertexProvider`
+- [x] `GET /provider` returns all four providers with live connection status from `CredentialRepository`
+- [x] `PATCH /provider/{id}` — TUI can set an API key directly and it takes effect immediately
 
 ---
 

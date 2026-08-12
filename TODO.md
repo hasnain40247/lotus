@@ -13,27 +13,27 @@ Things that still need to be built. Roughly priority order within each section.
 
 ## Tool implementations
 
-All 19 tool files in `controller/tool/src/tools/` are fully implemented.
+All 19 tool files in `controller/tool/src/tools/` are fully implemented and registered in `builtinToolsLayer` (`bootstrap.ts`).
 
-- [x] `BashTool` — shell command execution with timeout, output streaming
-- [x] `ReadTool` — file read with line range support
-- [x] `WriteTool` — atomic file write
-- [x] `EditTool` — exact string replacement with uniqueness check
-- [x] `GlobTool` — file pattern matching
-- [x] `GrepTool` — ripgrep / regex file search
-- [x] `WebFetchTool` — HTTP fetch with content extraction
-- [x] `WebSearchTool` — web search (requires provider key)
-- [x] `QuestionTool` — ask the user a question, block until answered
-- [x] `ApplyPatchTool` — apply a unified diff
-- [x] `ApplyUnifiedDiffTool` — apply a fenced unified diff block
-- [x] `TodoWriteTool` — write structured TODOs
-- [x] `SkillTool` — invoke a named skill
-- [x] `HttpBodyTool` — bounded HTTP response body collector (utility, not a user-facing tool)
-- [x] `ReadFilesystemTool` — directory listing with stat info
-- [x] `LspTool` — LSP diagnostics / hover / references
-- [x] `McpWebsearchTool` — web search via an MCP server
-- [x] `AgentTool` — spawn a sub-agent
-- [x] `TaskTool` — create / update tasks in-session
+- [x] `BashTool` (`bash`) — shell command execution with timeout, output streaming
+- [x] `ReadTool` (`read`) — file read with line range support
+- [x] `WriteTool` (`write`) — atomic file write
+- [x] `EditTool` (`edit`) — exact string replacement with uniqueness check
+- [x] `GlobTool` (`glob`) — file pattern matching
+- [x] `GrepTool` (`grep`) — ripgrep / regex file search
+- [x] `WebFetchTool` (`web_fetch`) — HTTP fetch with content extraction
+- [x] `WebSearchTool` (`web_search`) — web search (requires provider key)
+- [x] `QuestionTool` (`question`) — ask the user a question; registered in TuiCommand at startup with a shared QuestionStore
+- [x] `ApplyPatchTool` (`apply_patch`) — apply a unified diff
+- [x] `ApplyUnifiedDiffTool` (`apply_unified_diff`) — apply a standard `diff -u` / `git diff` patch
+- [x] `TodoWriteTool` (`todowrite`) — write structured TODOs; backed by in-memory store per session
+- [x] `SkillTool` (`skill`) — reads `./skills/<name>.md` and returns body; real execution is up to the agent
+- [x] `HttpBodyTool` — bounded HTTP response body collector (utility, not registered as a user-facing tool)
+- [x] `ReadFilesystemTool` — directory listing helpers (utility module used by ReadTool, not registered separately)
+- [x] `LspTool` (`lsp`) — registered; stub reports "no LSP server available" until a real LspService is wired
+- [x] `McpWebsearchTool` (`mcp_websearch`) — registered; stub errors until a real McpWebsearchService is wired
+- [x] `AgentTool` (`agent`) — registered; stub errors until a real AgentRunnerService is wired
+- [x] `TaskTool` (`task`) — registered; stub errors until a real TaskRunnerService is wired
 
 ---
 
@@ -69,7 +69,8 @@ The core REST endpoints are now wired. Remaining gaps:
 - [ ] **Streaming deltas** — `session.next.text.delta` and `session.next.tool.input.delta` are live-only in `SessionRunner` (never persisted to Firestore), so the SSE poller never sees them. Need a direct in-process pub/sub channel from `SessionRunner` → `broadcastSSE` to render streaming text and tool input in real time.
 - [x] `session.next.compaction.started/ended` → already emitted by `runCompactionImpl` in `SessionRunner` around the summary LLM call
 - [x] `QuestionTool` wiring — `QuestionStore` created on TUI startup, registered in tool registry, exposed via `GET /v2/session/{id}/question`, `POST .../reply`, `POST .../reject`
-- [ ] Permission prompt — `ToolPermissionEnforcer` isn't wired into `SessionRunner` tool execution at all; tools run without permission checks. Full fix requires intercepting the `"ask"` response in the turn loop and suspending until HTTP layer replies.
+- [x] Permission check — `ToolPermissionEnforcer` is now wired into `SessionRunner`. Before each tool call, saved user rules are checked: `"reject"` immediately settles the tool as a `Permission denied` error; `"ask"` is treated as allow (no interactive channel from the runner). `toolPermissionEnforcerLayer` moved to `infraLayer` so both `SessionRunner` and controllers share the same service instance.
+- [ ] Permission prompt — interactive `"ask"` flow not yet implemented. Full fix requires intercepting the `"ask"` decision in the turn loop and suspending until the HTTP layer (or TUI) replies with an allow/deny decision.
 
 ---
 

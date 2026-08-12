@@ -52,6 +52,7 @@ import {
   type IEventRepository,
 } from "@gco/model-domain"
 import { Service as ToolRegistry } from "@gco/controller-tool/ToolRegistry"
+import { Service as ToolPermissionEnforcer } from "@gco/controller-tool/ToolPermissionEnforcer"
 import { PROMPT_COMPACTION, PROMPT_TITLE } from "@gco/controller-agent/AgentRegistry"
 import { ModelResolver, ModelNotResolvedError } from "./ModelResolver"
 
@@ -1334,6 +1335,7 @@ export const layer = Layer.effect(
     const sessions = yield* Effect.service(SessionRepository)
     const toolRegistry = yield* Effect.service(ToolRegistry)
     const modelResolver = yield* Effect.service(ModelResolver)
+    const enforcer = yield* Effect.service(ToolPermissionEnforcer)
 
     // Active interrupt signals — one per session
     const activeInterrupts = new Map<Session.ID, () => void>()
@@ -1543,6 +1545,24 @@ export const layer = Layer.effect(
 
             needsContinuation = true
             const assistantMsgID = yield* publisher.assistantMessageID(event.id)
+
+            // Check saved user permission rules before executing. "ask" is treated as
+            // allow since the runner has no interactive channel; agent-level permissions
+            // (from AgentRegistry) already filtered the tool at materialization time.
+            const permitted = yield* enforcer.check(event.name, "*", sessionID).pipe(
+              Effect.catchCause(() => Effect.succeed("allow" as const)),
+            )
+            if (permitted === "reject") {
+              yield* publisher.publish(
+                LLMEvent.toolResult({
+                  id: event.id,
+                  name: event.name,
+                  result: { type: "error", value: `Permission denied: ${event.name}` },
+                }),
+                [],
+              )
+              return
+            }
 
             yield* Effect.uninterruptibleMask((restore) =>
               restore(

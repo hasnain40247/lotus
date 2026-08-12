@@ -53,8 +53,17 @@ import {
   GlobTool,
   GrepTool,
   EditTool,
+  WriteTool,
   WebFetchTool,
+  WebSearchTool,
   ApplyPatchTool,
+  ApplyUnifiedDiffTool,
+  TodoWriteTool,
+  AgentTool,
+  TaskTool,
+  SkillTool,
+  McpWebsearchTool,
+  LspTool,
 } from "@gco/controller-tool"
 
 // LLM infrastructure
@@ -161,27 +170,88 @@ const modelReposLayer = Layer.mergeAll(
   SecretsModelLayer,
 ).pipe(Layer.provide(Layer.merge(gcpServicesLayer, GcpConfig.layer)))
 
-// Provides ToolRegistryService AND registers built-in tools on startup.
-// Layer.merge deduplicates toolRegistryLayer so both sides share the same instance.
+// Provides ToolRegistryService AND registers all built-in tools on startup.
+// Service-dependent tools use inline stubs — real implementations replace these
+// as the corresponding subsystems are built out.
 const builtinToolsLayer = Layer.merge(
   toolRegistryLayer,
   Layer.effectDiscard(
     Effect.gen(function* () {
       const registry = yield* ToolRegistryService
+
+      // ── Inline stubs for service-dependent tools ─────────────────────────
+
+      const todoStore = new Map<string, ReadonlyArray<TodoWriteTool.TodoInfo>>()
+      const todoSvc: TodoWriteTool.ITodoService = {
+        update: ({ sessionID, todos }) =>
+          Effect.sync(() => { todoStore.set(sessionID, todos) }),
+      }
+
+      const agentSvc: AgentTool.IAgentRunnerService = {
+        run: () => Effect.fail(new Error("Sub-agent spawning not yet available")),
+      }
+
+      const taskSvc: TaskTool.ITaskRunnerService = {
+        run: () => Effect.fail(new Error("Task execution not yet available")),
+      }
+
+      const skillSvc: SkillTool.ISkillService = {
+        run: ({ skill }) =>
+          Effect.tryPromise({
+            try: async () => {
+              const f = Bun.file(`${process.cwd()}/skills/${skill}.md`)
+              if (!(await f.exists())) throw new Error("not found")
+              return { output: await f.text() }
+            },
+            catch: () => new Error(`Skill '${skill}' not found in ./skills/`),
+          }),
+      }
+
+      const mcpWebsearchSvc: McpWebsearchTool.IMcpWebsearchService = {
+        search: () => Effect.fail(new Error("No MCP web search server configured")),
+      }
+
+      const lspSvc: LspTool.ILspService = {
+        hasClients: () => Effect.succeed(false),
+        touchFile: () => Effect.void,
+        definition: () => Effect.succeed([]),
+        references: () => Effect.succeed([]),
+        hover: () => Effect.succeed([]),
+        documentSymbol: () => Effect.succeed([]),
+        workspaceSymbol: () => Effect.succeed([]),
+        implementation: () => Effect.succeed([]),
+        prepareCallHierarchy: () => Effect.succeed([]),
+        incomingCalls: () => Effect.succeed([]),
+        outgoingCalls: () => Effect.succeed([]),
+      }
+
+      // ── Registration ─────────────────────────────────────────────────────
+
       yield* registry.register({
-        bash: BashTool.tool,
-        read: ReadTool.tool,
-        glob: GlobTool.tool,
-        grep: GrepTool.tool,
-        edit: EditTool.tool,
-        web_fetch: WebFetchTool.tool,
-        apply_patch: ApplyPatchTool.tool,
+        bash:               BashTool.tool,
+        read:               ReadTool.tool,
+        glob:               GlobTool.tool,
+        grep:               GrepTool.tool,
+        edit:               EditTool.tool,
+        write:              WriteTool.tool,
+        web_fetch:          WebFetchTool.tool,
+        web_search:         WebSearchTool.tool,
+        apply_patch:        ApplyPatchTool.tool,
+        apply_unified_diff: ApplyUnifiedDiffTool.tool,
+        todowrite:          TodoWriteTool.makeTodoWriteTool(todoSvc),
+        agent:              AgentTool.makeAgentTool(agentSvc),
+        task:               TaskTool.makeTaskTool(taskSvc),
+        skill:              SkillTool.makeSkillTool(skillSvc),
+        mcp_websearch:      McpWebsearchTool.makeMcpWebsearchTool(mcpWebsearchSvc),
+        lsp:                LspTool.makeLspTool(lspSvc, process.cwd()),
       })
     }),
   ).pipe(Layer.provide(toolRegistryLayer)),
 )
 
 // Infrastructure available to all controllers (everything except SessionRunner itself).
+// toolPermissionEnforcerLayer is placed here (not in controllersLayer) so that
+// SessionRunner can depend on it for per-call permission checks.
 const infraLayer = Layer.mergeAll(
   GcpConfig.layer,
   gcpServicesLayer,
@@ -190,6 +260,7 @@ const infraLayer = Layer.mergeAll(
   agentLayer,
   builtinToolsLayer,
   mcpAuthLayer,
+  toolPermissionEnforcerLayer.pipe(Layer.provide(modelReposLayer)),
 )
 
 // SessionRunner needs LLM, repos, ToolRegistry, and ModelResolver — all in infraLayer.
@@ -200,7 +271,6 @@ const controllersLayer = Layer.mergeAll(
   sessionControllerLayer,
   sessionExporterLayer,
   sessionImporterLayer,
-  toolPermissionEnforcerLayer,
   mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
 ).pipe(Layer.provide(Layer.merge(infraLayer, sessionRunnerWithDeps)))
 
@@ -241,9 +311,10 @@ const testInfraLayer = Layer.mergeAll(
   stubGoogleIdentityLayer,
   llmClientLayer,
   agentLayer,
-  toolRegistryLayer,
+  builtinToolsLayer,
   mcpAuthLayer,
   testModelResolverLayer,
+  toolPermissionEnforcerLayer.pipe(Layer.provide(TestModelLayer)),
 )
 
 const testSessionRunnerWithDeps = sessionRunnerLayer.pipe(Layer.provide(testInfraLayer))
@@ -252,7 +323,6 @@ const testControllersLayer = Layer.mergeAll(
   sessionControllerLayer,
   sessionExporterLayer,
   sessionImporterLayer,
-  toolPermissionEnforcerLayer,
   mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
 ).pipe(Layer.provide(Layer.merge(testInfraLayer, testSessionRunnerWithDeps)))
 

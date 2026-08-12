@@ -4,7 +4,7 @@ import { TestModelLayer, seedSession, makeEvent } from "@gco/model-test"
 import { EventRepository, SessionRepository } from "@gco/model-domain"
 import { LLMClient, LLMEvent, Model } from "@gco/llm"
 import { agentLayer } from "@gco/controller-agent"
-import { toolRegistryLayer } from "@gco/controller-tool"
+import { toolRegistryLayer, toolPermissionEnforcerLayer } from "@gco/controller-tool"
 import { SessionController, NotFoundError, sessionControllerLayer, SessionRunner, sessionRunnerLayer } from "./index"
 import { ModelResolver } from "./ModelResolver"
 import type { Session } from "@gco/schema"
@@ -60,6 +60,7 @@ const controllerInfraLayer = Layer.mergeAll(
   toolRegistryLayer,
   testModelResolverLayer,
   mockLLMLayer,
+  toolPermissionEnforcerLayer.pipe(Layer.provide(TestModelLayer)),
 )
 
 const runnerWithDeps = sessionRunnerLayer.pipe(Layer.provide(controllerInfraLayer))
@@ -144,6 +145,7 @@ const runnerInfraLayer = Layer.mergeAll(
   mockLLMLayer,
   toolRegistryLayer,
   testModelResolverLayer,
+  toolPermissionEnforcerLayer.pipe(Layer.provide(TestModelLayer)),
 )
 
 const runnerLayer = sessionRunnerLayer.pipe(Layer.provide(runnerInfraLayer))

@@ -48,7 +48,6 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
               <text fg={theme.text}>
                 <b>{session()!.title}</b>
               </text>
-              <text fg={theme.textMuted}>{props.sessionID}</text>
               <Show when={session()!.workspaceID}>
                 <text fg={theme.textMuted}>
                   <Show
@@ -73,11 +72,8 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
           </box>
         </scrollbox>
 
-        <box flexShrink={0} gap={1} paddingTop={1}>
-          <text fg={theme.textMuted}>
-            <span style={{ fg: theme.success }}>•</span> <b>gcloud-opencode</b>{" "}
-            <span>{InstallationVersion}</span>
-          </text>
+        <box flexShrink={0} paddingTop={1}>
+          <text fg={theme.textMuted}>v{InstallationVersion}</text>
         </box>
       </box>
     </Show>

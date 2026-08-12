@@ -55,34 +55,25 @@ export function Footer() {
       <box gap={2} flexDirection="row" flexShrink={0}>
         <Switch>
           <Match when={store.welcome}>
-            <text fg={theme.text}>
-              Get started <span style={{ fg: theme.textMuted }}>/connect</span>
+            <text fg={theme.textMuted}>
+              /connect to get started
             </text>
           </Match>
           <Match when={connected()}>
             <Show when={permissions().length > 0}>
-              <text fg={theme.warning}>
-                <span style={{ fg: theme.warning }}>△</span> {permissions().length} Permission
-                {permissions().length > 1 ? "s" : ""}
-              </text>
+              <text fg={theme.warning}>△ {permissions().length}</text>
             </Show>
-            <text fg={theme.text}>
-              <span style={{ fg: lsp().length > 0 ? theme.success : theme.textMuted }}>•</span> {lsp().length} LSP
+            {/* LSP: single colored dot */}
+            <text>
+              <span style={{ fg: lsp().length > 0 ? theme.success : theme.textMuted }}>●</span>
             </text>
-            <Show when={mcp()}>
-              <text fg={theme.text}>
-                <Switch>
-                  <Match when={mcpError()}>
-                    <span style={{ fg: theme.error }}>⊙ </span>
-                  </Match>
-                  <Match when={true}>
-                    <span style={{ fg: theme.success }}>⊙ </span>
-                  </Match>
-                </Switch>
-                {mcp()} MCP
+            {/* MCP: dot + count, only when connected */}
+            <Show when={mcp() > 0}>
+              <text>
+                <span style={{ fg: mcpError() ? theme.error : theme.success }}>●</span>
+                <span style={{ fg: theme.textMuted }}> {mcp()}</span>
               </text>
             </Show>
-            <text fg={theme.textMuted}>/status</text>
           </Match>
         </Switch>
       </box>

@@ -53,8 +53,12 @@ export function Logo() {
         )}
       </For>
       <box height={1} />
-      <text fg={theme.primary} attributes={TextAttributes.BOLD} selectable={false}>
-        L O T U S
+      <text attributes={TextAttributes.BOLD} selectable={false}>
+        <span style={{ fg: theme.accent }}>❀</span>
+        <span style={{ fg: theme.primary }}> lotus</span>
+      </text>
+      <text fg={theme.textMuted} selectable={false}>
+        AI coding assistant
       </text>
     </box>
   )
@@ -64,8 +68,9 @@ export function LogoBanner() {
   const { theme } = useTheme()
   return (
     <box flexShrink={0} paddingTop={1} paddingBottom={1} alignItems="center">
-      <text fg={theme.primary} attributes={TextAttributes.BOLD} selectable={false}>
-        ❀  L O T U S
+      <text attributes={TextAttributes.BOLD} selectable={false}>
+        <span style={{ fg: theme.accent }}>❀</span>
+        <span style={{ fg: theme.primary }}> lotus</span>
       </text>
     </box>
   )

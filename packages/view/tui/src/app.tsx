@@ -23,6 +23,9 @@ import { ErrorComponent } from "./component/error-component"
 import { SDKProvider, useSDK } from "./context/sdk"
 import { registerLotusCodeKeymap } from "./keymap"
 import { SlashPalette, PALETTE_VIEWPORT, filterSlashCommands } from "./component/slash-palette"
+import { AgentPalette, type AgentPaletteItem, type AgentPalettePhase } from "./component/agent-palette"
+import { MentionPalette, MENTION_VIEWPORT } from "./component/mention-palette"
+import { McpPalette, type McpPaletteItem, type McpPalettePhase } from "./component/mcp-palette"
 import { write as clipboardWrite } from "./clipboard"
 import type { EventSource } from "./context/sdk"
 import type { Args } from "./context/args"
@@ -46,6 +49,33 @@ const C_USER_BG = RGBA.fromHex("#DBCFB0")  // warm tan — user message bubble
 // Minimal empty syntax style — the <markdown> element needs one but we don't
 // need code-syntax highlighting inside assistant prose.
 const EMPTY_SYNTAX = SyntaxStyle.fromTheme([])
+
+// Styled syntax used only by the input textarea, so that @-mentions get
+// highlighted (bold + accent color) inline as the user types or completes.
+const INPUT_SYNTAX = SyntaxStyle.fromStyles({
+  mention: { fg: "#2E7D6E", bold: true },   // deep sea-glass green — pops on cream
+})
+const MENTION_STYLE_ID = INPUT_SYNTAX.getStyleId("mention") ?? 0
+const MENTION_FG = RGBA.fromHex("#2E7D6E")
+
+// Split `text` into alternating plain/mention segments so message rendering
+// can bold-and-color `@path/to/file` tokens without losing surrounding text.
+function splitMentions(text: string): Array<{ text: string; mention: boolean }> {
+  const re = /(^|\s)(@\S+)/g
+  const out: Array<{ text: string; mention: boolean }> = []
+  let last = 0
+  let match: RegExpExecArray | null
+  while ((match = re.exec(text)) !== null) {
+    const preLen = match[1]?.length ?? 0
+    const start = match.index + preLen
+    const end = start + (match[0].length - preLen)
+    if (start > last) out.push({ text: text.slice(last, start), mention: false })
+    out.push({ text: text.slice(start, end), mention: true })
+    last = end
+  }
+  if (last < text.length) out.push({ text: text.slice(last), mention: false })
+  return out.length > 0 ? out : [{ text, mention: false }]
+}
 
 // ─── Whimsical spinner words ───────────────────────────────────────────────────
 const SPINNER_WORDS = [
@@ -83,6 +113,27 @@ const SPINNER_WORDS = [
 
 const pickSpinnerWord = () => SPINNER_WORDS[Math.floor(Math.random() * SPINNER_WORDS.length)]!
 
+// Circular / round glyphs for the tick-tock symbol beside the spinner word.
+// Includes classic dot progression, half-filled circles, asterisks and floral
+// stars — anything with rotational/circular form for a "weird but round" feel.
+const SPINNER_SYMBOLS = [
+  ".", "·", "∙", "•", "○", "●", "◉", "◎", "◍", "◌",
+  "◐", "◑", "◒", "◓", "◔", "◕", "◖", "◗",
+  "⊙", "⊚", "⊛", "⊜", "⊝",
+  "⭘", "◯",
+  "◆", "◇", "◈", "⚬",
+  "✳", "✴", "✵", "✶", "✷", "✸", "✹", "✺",
+  "❂", "❃", "❉", "❊", "❋",
+  "❄", "❅", "❆", "❇", "❈",
+  "✻", "✼", "✽", "✾", "✿", "❀", "❁",
+  "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷",
+  "◴", "◵", "◶", "◷",
+  "◜", "◝", "◞", "◟", "◠", "◡",
+  "⚪", "☉", "☼", "❍",
+]
+const pickSpinnerSymbol = (): string =>
+  SPINNER_SYMBOLS[Math.floor(Math.random() * SPINNER_SYMBOLS.length)]!
+
 // ─── Shine gradient helpers ────────────────────────────────────────────────────
 type Rgb = { r: number; g: number; b: number }
 
@@ -109,6 +160,19 @@ const shineColorFor = (charIndex: number, position: number) => {
   const t = Math.exp(-(distance * distance) / (2 * SHINE_SIGMA * SHINE_SIGMA))
   return blendHex(SHINE_BASE, SHINE_PEAK, t)
 }
+
+// Generic gaussian shine — used for the status message shimmer where the base
+// and peak colors differ per message kind.
+const shineBetween = (charIndex: number, position: number, base: Rgb, peak: Rgb, sigma = SHINE_SIGMA) => {
+  const distance = charIndex - position
+  const t = Math.exp(-(distance * distance) / (2 * sigma * sigma))
+  return blendHex(base, peak, t)
+}
+
+const STATUS_PEAK = parseHex("#FFFFFF")   // white highlight — the sweep
+const STATUS_BASE_INFO  = parseHex("#7A2E5C")
+const STATUS_BASE_WARN  = parseHex("#C05F3F")
+const STATUS_BASE_ERROR = parseHex("#B02828")
 
 export type TuiInput = {
   url: string
@@ -290,7 +354,15 @@ function NestedSubagentTranscript(props: {
                     <Switch>
                       <Match when={part.type === "text" && part.text?.trim()}>
                         <text fg={C_EGG} wrapMode="word">
-                          {part.text!.trim()}
+                          <For each={splitMentions(part.text!.trim())}>
+                            {(seg) =>
+                              seg.mention ? (
+                                <span style={{ fg: MENTION_FG, attributes: TextAttributes.BOLD }}>{seg.text}</span>
+                              ) : (
+                                <span>{seg.text}</span>
+                              )
+                            }
+                          </For>
                         </text>
                       </Match>
                       <Match when={part.type === "tool"}>
@@ -444,7 +516,15 @@ function UserRow(props: { parts: () => ChatPart[] }) {
           paddingBottom={1}
         >
           <text fg={C_WHITE} wrapMode="word">
-            {text()}
+            <For each={splitMentions(text())}>
+              {(seg) =>
+                seg.mention ? (
+                  <b style={{ fg: MENTION_FG }}>{seg.text}</b>
+                ) : (
+                  <span>{seg.text}</span>
+                )
+              }
+            </For>
           </text>
         </box>
       </box>
@@ -556,7 +636,7 @@ function Chat() {
   // Fetched from /agent. Only "primary" (non-hidden, non-subagent) agents
   // participate in Tab cycling — hidden agents (compaction/title/summary)
   // fire internally, and subagents are invoked via TaskTool.
-  type AgentEntry = { name: string; mode?: string; hidden?: boolean; color?: string }
+  type AgentEntry = { name: string; description?: string; mode?: string; hidden?: boolean; color?: string }
   const [agents, setAgents] = createSignal<AgentEntry[]>([])
   const [agentIndex, setAgentIndex] = createSignal(0)
   const currentAgent = () => agents()[agentIndex()]
@@ -642,6 +722,16 @@ function Chat() {
     onCleanup(() => clearInterval(wordTimer))
   })
 
+  // Weird circular symbol next to the spinner word — cycles fast through a
+  // grab-bag of dots, half-circles, asterisks and braille dots.
+  const [spinnerSymbol, setSpinnerSymbol] = createSignal(pickSpinnerSymbol())
+  createEffect(() => {
+    if (!running()) return
+    setSpinnerSymbol(pickSpinnerSymbol())
+    const symbolTimer = setInterval(() => setSpinnerSymbol(pickSpinnerSymbol()), 90)
+    onCleanup(() => clearInterval(symbolTimer))
+  })
+
   const elapsedSecs = () => {
     const start = turnStart()
     if (start === undefined) return 0
@@ -705,6 +795,121 @@ function Chat() {
   const [paletteScrollTop, setPaletteScrollTop] = createSignal(0)
   const paletteMatches = () => filterSlashCommands(paletteQuery())
 
+  // ── @ file mention palette ──────────────────────────────────────────────
+  const [mentionOpen, setMentionOpen] = createSignal(false)
+  const [mentionQuery, setMentionQuery] = createSignal("")
+  const [mentionResults, setMentionResults] = createSignal<string[]>([])
+  const [mentionIndex, setMentionIndex] = createSignal(0)
+  const [mentionScrollTop, setMentionScrollTop] = createSignal(0)
+  const [mentionLoading, setMentionLoading] = createSignal(false)
+  let mentionFetchSeq = 0
+  let mentionFetchTimer: ReturnType<typeof setTimeout> | undefined
+  // One-shot: set when completeMention runs so the Enter that selected the
+  // file doesn't also trigger onSubmit → submit().
+  let suppressNextSubmit = false
+
+  function reconcileMentionScroll(nextIndex: number, count: number) {
+    const maxTop = Math.max(0, count - MENTION_VIEWPORT)
+    setMentionScrollTop((top) => {
+      let next = Math.min(top, maxTop)
+      if (nextIndex < next) next = nextIndex
+      else if (nextIndex >= next + MENTION_VIEWPORT) next = nextIndex - MENTION_VIEWPORT + 1
+      return Math.max(0, Math.min(next, maxTop))
+    })
+  }
+
+  function moveMentionSelection(delta: number) {
+    const list = mentionResults()
+    if (list.length === 0) return
+    const raw = mentionIndex() + delta
+    const next = raw < 0 ? list.length - 1 : raw >= list.length ? 0 : raw
+    setMentionIndex(next)
+    reconcileMentionScroll(next, list.length)
+  }
+
+  function closeMention() {
+    setMentionOpen(false)
+    setMentionIndex(0)
+    setMentionScrollTop(0)
+    setMentionResults([])
+    setMentionQuery("")
+    setMentionLoading(false)
+    if (mentionFetchTimer) { clearTimeout(mentionFetchTimer); mentionFetchTimer = undefined }
+  }
+
+  async function runMentionSearch(query: string) {
+    const seq = ++mentionFetchSeq
+    setMentionLoading(true)
+    try {
+      const q = encodeURIComponent(query)
+      const res = await sdk.fetch(sdk.url + "/find/file?query=" + q + "&limit=50")
+      if (seq !== mentionFetchSeq) return   // stale
+      const data = (await res.json().catch(() => [])) as unknown
+      const list = Array.isArray(data) ? (data as string[]) : []
+      setMentionResults(list)
+      setMentionIndex(0)
+      setMentionScrollTop(0)
+    } catch {
+      if (seq === mentionFetchSeq) setMentionResults([])
+    } finally {
+      if (seq === mentionFetchSeq) setMentionLoading(false)
+    }
+  }
+
+  // Returns the pending @-mention token at the caret if any, else null.
+  // We approximate the caret by using the end of the plainText — good enough
+  // for typing at the end of the input, which is the common case.
+  function detectMentionAtEnd(text: string): { start: number; query: string } | null {
+    const at = text.lastIndexOf("@")
+    if (at < 0) return null
+    // The @ must be at start, or preceded by whitespace/newline.
+    if (at > 0 && !/\s/.test(text[at - 1] ?? "")) return null
+    const tail = text.slice(at + 1)
+    // If any whitespace after the @, it's no longer active.
+    if (/\s/.test(tail)) return null
+    return { start: at, query: tail }
+  }
+
+  function completeMention() {
+    const list = mentionResults()
+    const pick = list[mentionIndex()]
+    if (!pick) return
+    const text = inputEl?.plainText ?? ""
+    const m = detectMentionAtEnd(text)
+    if (!m) { closeMention(); return }
+    const before = text.slice(0, m.start)
+    const inserted = "@" + pick + " "
+    const replaced = before + inserted
+    suppressNextSubmit = true
+    inputEl?.setText(replaced)
+    // Place caret at the end of the inserted mention (after the trailing space)
+    // so the user can immediately keep typing.
+    if (inputEl) inputEl.cursorOffset = replaced.length
+    closeMention()
+    // setText fires onContentChange which re-runs highlightMentionsInInput,
+    // but call it explicitly for safety in case the event is coalesced.
+    highlightMentionsInInput()
+  }
+
+  // Clears and re-adds highlights for every "@\S+" token in the input buffer.
+  function highlightMentionsInInput() {
+    if (!inputEl) return
+    const el = inputEl
+    try {
+      el.clearAllHighlights()
+    } catch { /* no-op if not supported */ }
+    const text = el.plainText ?? ""
+    const re = /(^|\s)@\S+/g
+    let match: RegExpExecArray | null
+    while ((match = re.exec(text)) !== null) {
+      const start = match.index + (match[1]?.length ?? 0)
+      const end = start + (match[0].length - (match[1]?.length ?? 0))
+      try {
+        el.addHighlightByCharRange({ start, end, styleId: MENTION_STYLE_ID })
+      } catch { /* no-op */ }
+    }
+  }
+
   // Keep the selected item inside the viewport window.
   function reconcileScroll(nextIndex: number, matchCount: number) {
     const maxTop = Math.max(0, matchCount - PALETTE_VIEWPORT)
@@ -731,6 +936,8 @@ function Chat() {
 
   function updatePaletteFromInput() {
     const text = inputEl?.plainText ?? ""
+
+    // Slash palette
     if (text.startsWith("/") && !text.includes(" ") && !text.includes("\n")) {
       setPaletteQuery(text.slice(1))
       setPaletteOpen(true)
@@ -743,6 +950,19 @@ function Chat() {
       setPaletteOpen(false)
       setPaletteIndex(0)
       setPaletteScrollTop(0)
+    }
+
+    // @ mention palette
+    const m = detectMentionAtEnd(text)
+    if (m) {
+      setMentionOpen(true)
+      if (m.query !== mentionQuery()) {
+        setMentionQuery(m.query)
+        if (mentionFetchTimer) clearTimeout(mentionFetchTimer)
+        mentionFetchTimer = setTimeout(() => { void runMentionSearch(m.query) }, 90)
+      }
+    } else if (mentionOpen()) {
+      closeMention()
     }
   }
 
@@ -762,13 +982,348 @@ function Chat() {
 
   // ── Command status banner ───────────────────────────────────────────────
   const [status, setStatus] = createSignal<{ text: string; kind: "info" | "warn" | "error" } | undefined>()
+  const [statusShine, setStatusShine] = createSignal(-4)
   let statusTimer: ReturnType<typeof setTimeout> | undefined
   function showStatus(text: string, kind: "info" | "warn" | "error" = "info") {
     setStatus({ text, kind })
+    setStatusShine(-4)
     if (statusTimer) clearTimeout(statusTimer)
     statusTimer = setTimeout(() => setStatus(undefined), 3000)
   }
   onCleanup(() => statusTimer && clearTimeout(statusTimer))
+
+  // Animate a highlight sweep across the status text while it's visible.
+  createEffect(() => {
+    const s = status()
+    if (!s) return
+    setStatusShine(-4)
+    const shineTimer = setInterval(() => {
+      setStatusShine((prev) => {
+        const len = s.text.length + 8
+        const next = prev + 0.6
+        return next > len ? -4 : next
+      })
+    }, 55)
+    onCleanup(() => clearInterval(shineTimer))
+  })
+
+  const statusBaseFor = (kind: "info" | "warn" | "error") =>
+    kind === "error" ? STATUS_BASE_ERROR : kind === "warn" ? STATUS_BASE_WARN : STATUS_BASE_INFO
+
+  // ── /agent modal ────────────────────────────────────────────────────────
+  // Two phases:
+  //   "select" — list existing agents + "+ New agent…" row. Enter switches to
+  //     the selected agent (or opens create mode).
+  //   "create" — inline wizard: name → description → mode. Each Enter on the
+  //     main input captures that step's value. Esc cancels.
+  const [agentModalPhase, setAgentModalPhase] = createSignal<AgentPalettePhase | null>(null)
+  const agentModalOpen = () => agentModalPhase() !== null
+
+  // Built-in agents that must not be deleted. Kept in sync with
+  // AgentRegistry.builtInAgents() in @gco/controller-agent.
+  const BUILT_IN_AGENT_IDS = new Set([
+    "build", "explore", "plan", "general", "compaction", "title", "summary",
+  ])
+
+  function buildAgentSelectItems(): AgentPaletteItem[] {
+    const cur = currentAgentName()
+    const items: AgentPaletteItem[] = agents().map((a) => ({
+      name: a.name,
+      description: a.description,
+      color: a.color,
+      current: a.name === cur,
+      deletable: !BUILT_IN_AGENT_IDS.has(a.name),
+    }))
+    items.push({ name: "__new__" })
+    return items
+  }
+
+  function openAgentModal() {
+    const items = buildAgentSelectItems()
+    const curIdx = Math.max(0, items.findIndex((it) => it.current))
+    setAgentModalPhase({ type: "select", items, index: curIdx })
+  }
+
+  function closeAgentModal() {
+    setAgentModalPhase(null)
+  }
+
+  function moveAgentModalSelection(delta: number) {
+    const p = agentModalPhase()
+    if (!p || p.type !== "select") return
+    const len = p.items.length
+    const next = ((p.index + delta) % len + len) % len
+    setAgentModalPhase({ ...p, index: next })
+  }
+
+  async function selectAgentFromModal(name: string) {
+    const list = agents()
+    const idx = list.findIndex((a) => a.name === name)
+    if (idx < 0) { closeAgentModal(); return }
+    setAgentIndex(idx)
+    const sid = sessionID()
+    if (sid) {
+      await sdk.client.session.update({ sessionID: sid, agent: name }).catch(() => {})
+    }
+    closeAgentModal()
+    showStatus(`Switched to ${name}`)
+  }
+
+  function confirmAgentModalSelection() {
+    const p = agentModalPhase()
+    if (!p || p.type !== "select") return
+    const item = p.items[p.index]
+    if (!item) return
+    if (item.name === "__new__") {
+      setAgentModalPhase({ type: "create", step: "name" })
+      inputEl?.setText("")
+      return
+    }
+    void selectAgentFromModal(item.name)
+  }
+
+  function requestDeleteFromModal() {
+    const p = agentModalPhase()
+    if (!p || p.type !== "select") return
+    const item = p.items[p.index]
+    if (!item || item.name === "__new__") return
+    if (!item.deletable) {
+      showStatus(`Cannot delete built-in agent '${item.name}'`, "warn")
+      return
+    }
+    setAgentModalPhase({ type: "confirm", name: item.name, returnIndex: p.index, items: p.items })
+  }
+
+  async function confirmDeleteFromModal() {
+    const p = agentModalPhase()
+    if (!p || p.type !== "confirm") return
+    const name = p.name
+    try {
+      const res = await sdk.fetch(sdk.url + "/agent/" + encodeURIComponent(name), { method: "DELETE" })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string }
+        showStatus(`Failed: ${err.error ?? res.statusText}`, "error")
+        setAgentModalPhase({ type: "select", items: p.items, index: p.returnIndex })
+        return
+      }
+    } catch (e) {
+      showStatus(`Failed: ${String(e)}`, "error")
+      setAgentModalPhase({ type: "select", items: p.items, index: p.returnIndex })
+      return
+    }
+
+    // Refresh the agent list and reset selection.
+    const listRes = await sdk.client.app.agents({}).catch(() => null)
+    const list = (listRes?.data ?? []) as AgentEntry[]
+    const primary = list.filter((a) => !a.hidden && a.mode !== "subagent")
+    setAgents(primary)
+    if (currentAgentName() === name) {
+      const buildIdx = primary.findIndex((a) => a.name === "build")
+      setAgentIndex(buildIdx >= 0 ? buildIdx : 0)
+    }
+    showStatus(`Deleted agent "${name}"`)
+
+    // Rebuild the modal item list so the removed agent disappears.
+    const items = buildAgentSelectItems()
+    if (items.length <= 1) { closeAgentModal(); return }
+    setAgentModalPhase({ type: "select", items, index: Math.min(p.returnIndex, items.length - 1) })
+  }
+
+  function cancelDeleteFromModal() {
+    const p = agentModalPhase()
+    if (!p || p.type !== "confirm") return
+    setAgentModalPhase({ type: "select", items: p.items, index: p.returnIndex })
+  }
+
+  // ── /mcp modal ──────────────────────────────────────────────────────────
+  const [mcpModalPhase, setMcpModalPhase] = createSignal<McpPalettePhase | null>(null)
+  const mcpModalOpen = () => mcpModalPhase() !== null
+
+  type ServerRow = { id: string; name: string; status: string; error?: string; config: any; tools: string[] }
+
+  function toMcpItems(list: ServerRow[]): McpPaletteItem[] {
+    const items: McpPaletteItem[] = list.map((s) => {
+      const cmd = Array.isArray(s.config?.command) ? s.config.command.join(" ") : undefined
+      return {
+        name: s.name,
+        status: s.status,
+        error: s.error,
+        command: cmd,
+        toolCount: s.tools?.length,
+      }
+    })
+    items.push({ name: "__new__", status: "" })
+    return items
+  }
+
+  async function fetchMcpList(): Promise<ServerRow[]> {
+    try {
+      const res = await sdk.fetch(sdk.url + "/mcp")
+      const data = await res.json().catch(() => null)
+      // Server wraps the array in { servers, connected } — unwrap if needed.
+      if (Array.isArray(data)) return data as ServerRow[]
+      if (data && typeof data === "object" && Array.isArray((data as any).servers))
+        return (data as any).servers as ServerRow[]
+      return []
+    } catch {
+      return []
+    }
+  }
+
+  async function openMcpModal() {
+    const list = await fetchMcpList()
+    const items = toMcpItems(list)
+    setMcpModalPhase({ type: "select", items, index: 0 })
+  }
+
+  function closeMcpModal() { setMcpModalPhase(null) }
+
+  function moveMcpModalSelection(delta: number) {
+    const p = mcpModalPhase()
+    if (!p || p.type !== "select") return
+    const len = p.items.length
+    const next = ((p.index + delta) % len + len) % len
+    setMcpModalPhase({ ...p, index: next })
+  }
+
+  async function reconnectMcpFromModal(name: string) {
+    try {
+      const res = await sdk.fetch(sdk.url + "/mcp/" + encodeURIComponent(name) + "/connect", {
+        method: "POST",
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string }
+        showStatus(`Failed: ${err.error ?? res.statusText}`, "error")
+        return
+      }
+      showStatus(`Reconnecting "${name}"…`)
+      // Give the connect a moment, then refresh.
+      setTimeout(async () => {
+        const list = await fetchMcpList()
+        const p = mcpModalPhase()
+        if (p && p.type === "select") {
+          const items = toMcpItems(list)
+          setMcpModalPhase({ type: "select", items, index: Math.min(p.index, items.length - 1) })
+        }
+      }, 400)
+    } catch (e) {
+      showStatus(`Failed: ${String(e)}`, "error")
+    }
+  }
+
+  function confirmMcpModalSelection() {
+    const p = mcpModalPhase()
+    if (!p || p.type !== "select") return
+    const item = p.items[p.index]
+    if (!item) return
+    if (item.name === "__new__") {
+      setMcpModalPhase({ type: "create", step: "name" })
+      inputEl?.setText("")
+      return
+    }
+    if (item.status !== "connected") void reconnectMcpFromModal(item.name)
+    else showStatus(`"${item.name}" is already connected`)
+  }
+
+  function requestDeleteMcpFromModal() {
+    const p = mcpModalPhase()
+    if (!p || p.type !== "select") return
+    const item = p.items[p.index]
+    if (!item || item.name === "__new__") return
+    setMcpModalPhase({ type: "confirm", name: item.name, returnIndex: p.index, items: p.items })
+  }
+
+  async function confirmDeleteMcpFromModal() {
+    const p = mcpModalPhase()
+    if (!p || p.type !== "confirm") return
+    const name = p.name
+    try {
+      const res = await sdk.fetch(sdk.url + "/mcp/" + encodeURIComponent(name), { method: "DELETE" })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string }
+        showStatus(`Failed: ${err.error ?? res.statusText}`, "error")
+        setMcpModalPhase({ type: "select", items: p.items, index: p.returnIndex })
+        return
+      }
+    } catch (e) {
+      showStatus(`Failed: ${String(e)}`, "error")
+      setMcpModalPhase({ type: "select", items: p.items, index: p.returnIndex })
+      return
+    }
+    const list = await fetchMcpList()
+    const items = toMcpItems(list)
+    showStatus(`Deleted MCP "${name}"`)
+    if (items.length <= 1) { closeMcpModal(); return }
+    setMcpModalPhase({ type: "select", items, index: Math.min(p.returnIndex, items.length - 1) })
+  }
+
+  function cancelDeleteMcpFromModal() {
+    const p = mcpModalPhase()
+    if (!p || p.type !== "confirm") return
+    setMcpModalPhase({ type: "select", items: p.items, index: p.returnIndex })
+  }
+
+  function parseEnv(input: string): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const tok of input.split(/\s+/)) {
+      if (!tok) continue
+      const eq = tok.indexOf("=")
+      if (eq <= 0) continue
+      out[tok.slice(0, eq)] = tok.slice(eq + 1)
+    }
+    return out
+  }
+
+  async function submitNewMcp(name: string, commandLine: string, envInput: string) {
+    const command = commandLine.split(/\s+/).filter(Boolean)
+    const environment = parseEnv(envInput)
+    const body: any = { name, type: "local", command }
+    if (Object.keys(environment).length > 0) body.environment = environment
+    try {
+      const res = await sdk.fetch(sdk.url + "/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string }
+        showStatus(`Failed: ${err.error ?? res.statusText}`, "error")
+        return
+      }
+      showStatus(`Added MCP "${name}" — connecting…`)
+      // Refresh list into select phase.
+      setTimeout(async () => {
+        const list = await fetchMcpList()
+        const items = toMcpItems(list)
+        const idx = Math.max(0, items.findIndex((it) => it.name === name))
+        setMcpModalPhase({ type: "select", items, index: idx })
+      }, 400)
+    } catch (e) {
+      showStatus(`Failed: ${String(e)}`, "error")
+    }
+  }
+
+  async function submitNewAgent(name: string, description: string, mode: "primary" | "subagent" | "all") {
+    try {
+      const res = await sdk.fetch(sdk.url + "/agent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, description, mode }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string }
+        showStatus(`Failed: ${err.error ?? res.statusText}`, "error")
+        return
+      }
+      const listRes = await sdk.client.app.agents({}).catch(() => null)
+      const list = (listRes?.data ?? []) as AgentEntry[]
+      const primary = list.filter((a) => !a.hidden && a.mode !== "subagent")
+      if (primary.length > 0) setAgents(primary)
+      showStatus(`Agent "${name}" created`)
+    } catch (e) {
+      showStatus(`Failed: ${String(e)}`, "error")
+    }
+  }
 
   async function cycleAgent() {
     const list = agents()
@@ -877,6 +1432,14 @@ function Chat() {
         showStatus("Type a new title then press Enter")
         return
       }
+      case "agent": {
+        openAgentModal()
+        return
+      }
+      case "mcp": {
+        void openMcpModal()
+        return
+      }
       default:
         showStatus(`/${name} isn't wired up in this UI yet`, "warn")
     }
@@ -888,7 +1451,79 @@ function Chat() {
   // palette is open, and for agent cycling (tab/shift+tab) while it is closed.
   onMount(() => {
     const listener = (key: KeyEvent) => {
-      // Palette closed: tab cycles the active agent forward.
+      // MCP modal open: intercept navigation keys.
+      const mcp = mcpModalPhase()
+      if (mcp) {
+        if (mcp.type === "confirm") {
+          if (key.name === "escape" || key.name === "n") {
+            cancelDeleteMcpFromModal(); key.preventDefault(); return
+          }
+          if (key.name === "y" || key.name === "return") {
+            void confirmDeleteMcpFromModal(); key.preventDefault(); return
+          }
+          key.preventDefault()
+          return
+        }
+        if (key.name === "escape") { closeMcpModal(); key.preventDefault(); return }
+        if (mcp.type === "select") {
+          if (key.name === "up") { moveMcpModalSelection(-1); key.preventDefault(); return }
+          if (key.name === "down") { moveMcpModalSelection(1); key.preventDefault(); return }
+          if (key.name === "return") { confirmMcpModalSelection(); key.preventDefault(); return }
+          if (key.name === "d") { requestDeleteMcpFromModal(); key.preventDefault(); return }
+        }
+        // In "create" phase, let text keys reach the input; only Esc handled above.
+        return
+      }
+
+      // Agent modal open: intercept navigation keys.
+      const modal = agentModalPhase()
+      if (modal) {
+        if (modal.type === "confirm") {
+          if (key.name === "escape" || key.name === "n") {
+            cancelDeleteFromModal()
+            key.preventDefault()
+            return
+          }
+          if (key.name === "y" || key.name === "return") {
+            void confirmDeleteFromModal()
+            key.preventDefault()
+            return
+          }
+          // Swallow other keys so they don't reach the input while confirming.
+          key.preventDefault()
+          return
+        }
+        if (key.name === "escape") {
+          closeAgentModal()
+          key.preventDefault()
+          return
+        }
+        if (modal.type === "select") {
+          if (key.name === "up") { moveAgentModalSelection(-1); key.preventDefault(); return }
+          if (key.name === "down") { moveAgentModalSelection(1); key.preventDefault(); return }
+          if (key.name === "return") { confirmAgentModalSelection(); key.preventDefault(); return }
+          if (key.name === "d") { requestDeleteFromModal(); key.preventDefault(); return }
+        }
+        // In "create" phase, let text keys reach the input; only Esc is handled.
+        return
+      }
+
+      // @ mention palette open: navigate + complete. Swallow tab/return even
+      // when results are empty (e.g. still loading) so Enter never accidentally
+      // submits the message while the palette is up.
+      if (mentionOpen()) {
+        if (key.name === "escape") { closeMention(); key.preventDefault(); return }
+        const list = mentionResults()
+        if (key.name === "up" && list.length > 0) { moveMentionSelection(-1); key.preventDefault(); return }
+        if (key.name === "down" && list.length > 0) { moveMentionSelection(1); key.preventDefault(); return }
+        if (key.name === "tab" || key.name === "return") {
+          if (list.length > 0) completeMention()
+          key.preventDefault()
+          return
+        }
+      }
+
+      // Slash palette closed: tab cycles the active agent forward.
       if (!paletteOpen()) {
         if (key.name === "tab" && !key.shift) {
           void cycleAgent()
@@ -1133,7 +1768,71 @@ function Chat() {
 
   async function submit() {
     const text = inputEl?.plainText?.trim() ?? ""
-    if (!text || running()) return
+    if (running()) return
+    // Empty input is allowed for wizard steps that accept blanks (mcp "env",
+    // agent "mode" defaults). Only bail early on empty text when NO wizard is
+    // active, since the actual prompt path can't send an empty message.
+    const wizardActive =
+      (mcpModalPhase()?.type === "create") ||
+      (agentModalPhase()?.type === "create")
+    if (!text && !wizardActive) return
+
+    // MCP modal in create phase: name → command → env.
+    const mcpModal = mcpModalPhase()
+    if (mcpModal && mcpModal.type === "create") {
+      inputEl?.setText("")
+      if (mcpModal.step === "name") {
+        if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(text)) {
+          showStatus("Name must match [a-zA-Z][a-zA-Z0-9_-]* — try again", "warn")
+          return
+        }
+        setMcpModalPhase({ type: "create", step: "command", name: text })
+        return
+      }
+      if (mcpModal.step === "command") {
+        if (!text) {
+          showStatus("Command is required — try again", "warn")
+          return
+        }
+        setMcpModalPhase({ type: "create", step: "env", name: mcpModal.name, command: text })
+        return
+      }
+      if (mcpModal.step === "env") {
+        const name = mcpModal.name!
+        const cmd = mcpModal.command!
+        await submitNewMcp(name, cmd, text)
+        return
+      }
+    }
+
+    // Agent modal in create phase: intercept submit for each wizard step.
+    const modal = agentModalPhase()
+    if (modal && modal.type === "create") {
+      inputEl?.setText("")
+      if (modal.step === "name") {
+        if (!/^[a-z][a-z0-9-]*$/i.test(text)) {
+          showStatus("Name must match [a-zA-Z][a-zA-Z0-9-]* — try again", "warn")
+          return
+        }
+        setAgentModalPhase({ type: "create", step: "description", name: text })
+        return
+      }
+      if (modal.step === "description") {
+        setAgentModalPhase({ type: "create", step: "mode", name: modal.name, description: text })
+        return
+      }
+      if (modal.step === "mode") {
+        const modeInput = text.toLowerCase()
+        const mode = (modeInput === "subagent" || modeInput === "all" || modeInput === "primary")
+          ? modeInput
+          : "primary"
+        const name = modal.name!
+        const description = modal.description!
+        closeAgentModal()
+        await submitNewAgent(name, description, mode)
+        return
+      }
+    }
 
     // Two-step commands: intercept `/rename <title>` and other arg-taking
     // slash commands here. Bare `/name` with no args also routes back to the
@@ -1201,15 +1900,20 @@ function Chat() {
         <Show when={running() || streamingStats()}>
           <box paddingLeft={4} paddingTop={1} flexShrink={0} flexDirection="row" gap={2}>
             <Show when={running()}>
-              <text>
-                {/* Index (not For) — chars in the word repeat (e.g. two "c"s in
-                    "Concocting"), and For's referential-keying gets confused when
-                    primitive items collide, leaving stale nodes from the prior
-                    word bleeding into the new one. */}
-                <Index each={(spinnerWord() + "…").split("")}>
-                  {(ch, i) => <span style={{ fg: shineColorFor(i, shinePos()) }}>{ch()}</span>}
-                </Index>
-              </text>
+              <box flexDirection="row" gap={1}>
+                <text>
+                  <b style={{ fg: C_EGG }}>{spinnerSymbol()}</b>
+                </text>
+                <text>
+                  {/* Index (not For) — chars in the word repeat (e.g. two "c"s in
+                      "Concocting"), and For's referential-keying gets confused when
+                      primitive items collide, leaving stale nodes from the prior
+                      word bleeding into the new one. */}
+                  <Index each={(spinnerWord() + "…").split("")}>
+                    {(ch, i) => <span style={{ fg: shineColorFor(i, shinePos()) }}>{ch()}</span>}
+                  </Index>
+                </text>
+              </box>
             </Show>
             <Show when={streamingStats()}>
               <text fg={C_DIM}>{streamingStats()}</text>
@@ -1218,21 +1922,30 @@ function Chat() {
         </Show>
       </scrollbox>
 
-      {/* Divider */}
-      <box height={1} backgroundColor={C_MUTED} />
-
-      {/* Command status banner */}
-      <Show when={status()}>
-        {(s) => (
-          <box paddingLeft={2} paddingRight={2} backgroundColor={C_INPUT}>
-            <text
-              fg={s().kind === "error" ? RGBA.fromHex("#CC6666") : s().kind === "warn" ? C_ACCENT : C_DIM}
-            >
-              {s().text}
+      {/* Divider — doubles as the status bar. Italic status messages render
+          right-aligned inside the dark-shaded band. */}
+      <box
+        height={1}
+        flexDirection="row"
+        justifyContent="flex-end"
+        paddingLeft={2}
+        paddingRight={2}
+        backgroundColor={C_MUTED}
+      >
+        <Show when={status()}>
+          {(s) => (
+            <text attributes={TextAttributes.ITALIC | TextAttributes.BOLD}>
+              <Index each={s().text.split("")}>
+                {(ch, i) => (
+                  <span style={{ fg: shineBetween(i, statusShine(), statusBaseFor(s().kind), STATUS_PEAK) }}>
+                    {ch()}
+                  </span>
+                )}
+              </Index>
             </text>
-          </box>
-        )}
-      </Show>
+          )}
+        </Show>
+      </box>
 
       {/* Slash command palette (appears when input starts with "/") */}
       <SlashPalette
@@ -1240,6 +1953,29 @@ function Chat() {
         commands={paletteMatches}
         selected={paletteIndex}
         scrollTop={paletteScrollTop}
+      />
+
+      {/* Agent modal (opens on /agent) */}
+      <AgentPalette
+        visible={agentModalOpen}
+        phase={() => agentModalPhase() as AgentPalettePhase}
+        agentColor={agentColor}
+      />
+
+      {/* MCP modal (opens on /mcp) */}
+      <McpPalette
+        visible={mcpModalOpen}
+        phase={() => mcpModalPhase() as McpPalettePhase}
+      />
+
+      {/* @ mention palette (appears when typing @<query> in the input) */}
+      <MentionPalette
+        visible={mentionOpen}
+        query={mentionQuery}
+        results={mentionResults}
+        selected={mentionIndex}
+        scrollTop={mentionScrollTop}
+        loading={mentionLoading}
       />
 
       {/* Input */}
@@ -1266,8 +2002,14 @@ function Chat() {
           backgroundColor={C_INPUT}
           cursorColor={agentColor(currentAgentName())}
           maxHeight={8}
-          onContentChange={() => updatePaletteFromInput()}
+          syntaxStyle={INPUT_SYNTAX}
+          onContentChange={() => { updatePaletteFromInput(); highlightMentionsInInput() }}
           onSubmit={() => {
+            if (suppressNextSubmit) { suppressNextSubmit = false; return }
+            if (mentionOpen()) {
+              if (mentionResults().length > 0) completeMention()
+              return
+            }
             if (paletteOpen() && paletteMatches().length > 0) {
               completeSlashCommand()
               return

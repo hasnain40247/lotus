@@ -5,6 +5,7 @@ import { EventRepository, SessionRepository } from "@gco/model-domain"
 import { LLMClient, LLMEvent, Model } from "@gco/llm"
 import { agentLayer } from "@gco/controller-agent"
 import { toolRegistryLayer, toolPermissionEnforcerLayer } from "@gco/controller-tool"
+import { McpController } from "@gco/controller-mcp"
 import { SessionController, NotFoundError, sessionControllerLayer, SessionRunner, sessionRunnerLayer } from "./index"
 import { ModelResolver } from "./ModelResolver"
 import type { Session } from "@gco/schema"
@@ -54,12 +55,44 @@ const mockLLMLayer = Layer.succeed(LLMClient.Service, {
 
 // ─── Group A: SessionController (no LLM call) ────────────────────────────────
 
+// Stub McpController — session tests don't exercise real MCP flow; they
+// just need the service present so SessionRunner can yield it.
+const stubMcpLayer = Layer.succeed(
+  McpController.Service,
+  McpController.Service.of({
+    status: () => Effect.succeed({}),
+    clients: () => Effect.succeed({}),
+    instructions: () => Effect.succeed([]),
+    tools: () => Effect.succeed({}),
+    prompts: () => Effect.succeed({}),
+    resources: () => Effect.succeed({}),
+    resourceTemplates: () => Effect.succeed({}),
+    config: () => Effect.succeed({}),
+    serverDefs: () => Effect.succeed({}),
+    add: () => Effect.succeed({ status: { status: "disabled" as const } }),
+    connect: () => Effect.void as any,
+    disconnect: () => Effect.void as any,
+    remove: () => Effect.void,
+    getPrompt: () => Effect.succeed(undefined),
+    readResource: () => Effect.succeed(undefined),
+    startAuth: () => Effect.succeed({ authorizationUrl: "", oauthState: "" }) as any,
+    authenticate: () => Effect.succeed({ status: "disabled" as const }) as any,
+    finishAuth: () => Effect.succeed({ status: "disabled" as const }) as any,
+    removeAuth: () => Effect.void,
+    supportsOAuth: () => Effect.succeed(false) as any,
+    hasStoredTokens: () => Effect.succeed(false),
+    getAuthStatus: () => Effect.succeed("not_authenticated" as const),
+    loadConfig: () => Effect.void,
+  }),
+)
+
 const controllerInfraLayer = Layer.mergeAll(
   TestModelLayer,
   agentLayer,
   toolRegistryLayer,
   testModelResolverLayer,
   mockLLMLayer,
+  stubMcpLayer,
   toolPermissionEnforcerLayer.pipe(Layer.provide(TestModelLayer)),
 )
 
@@ -146,6 +179,7 @@ const runnerInfraLayer = Layer.mergeAll(
   toolRegistryLayer,
   agentLayer,
   testModelResolverLayer,
+  stubMcpLayer,
   toolPermissionEnforcerLayer.pipe(Layer.provide(TestModelLayer)),
 )
 

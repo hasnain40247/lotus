@@ -65,7 +65,6 @@ export { LspTool } from "./tools/LspTool"
 export { AgentTool } from "./tools/AgentTool"
 export { TaskTool } from "./tools/TaskTool"
 export { SkillTool } from "./tools/SkillTool"
-export { McpWebsearchTool } from "./tools/McpWebsearchTool"
 
 // ─── Service tags (re-exported for convenience) ───────────────────────────────
 
@@ -75,7 +74,6 @@ export { LspService } from "./tools/LspTool"
 export { AgentRunnerService } from "./tools/AgentTool"
 export { TaskRunnerService } from "./tools/TaskTool"
 export { SkillService } from "./tools/SkillTool"
-export { McpWebsearchService } from "./tools/McpWebsearchTool"
 export { ConfigService as WebSearchConfigService, defaultConfigLayer as webSearchDefaultConfigLayer } from "./tools/WebSearchTool"
 
 // ─── Combined layer ──────────────────────────────────────────────────────────

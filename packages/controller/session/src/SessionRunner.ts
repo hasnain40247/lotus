@@ -55,6 +55,7 @@ import { Service as ToolRegistry } from "@gco/controller-tool/ToolRegistry"
 import { Service as ToolPermissionEnforcer } from "@gco/controller-tool/ToolPermissionEnforcer"
 import { PROMPT_COMPACTION, PROMPT_TITLE } from "@gco/controller-agent/AgentRegistry"
 import { AgentService } from "@gco/controller-agent"
+import { McpController } from "@gco/controller-mcp"
 import { ModelResolver, ModelNotResolvedError } from "./ModelResolver"
 
 // ---------------------------------------------------------------------------
@@ -1349,6 +1350,7 @@ export const layer = Layer.effect(
     const modelResolver = yield* Effect.service(ModelResolver)
     const enforcer = yield* Effect.service(ToolPermissionEnforcer)
     const agentController = yield* Effect.service(AgentService)
+    const mcpController = yield* Effect.service(McpController.Service)
 
     // Active interrupt signals — one per session
     const activeInterrupts = new Map<Session.ID, () => void>()
@@ -1621,6 +1623,14 @@ The conversation you see already contains tool calls and their results. Write a 
         ? undefined
         : yield* toolRegistry.materialize(agentInfo?.permissions as any)
 
+      // Merge in tools from any connected MCP servers so the LLM can see and
+      // call them alongside built-ins. Keys are pre-sanitized as `{server}_{tool}`
+      // by McpController — used as the tool name sent to the LLM and as the
+      // dispatch key on tool_call events.
+      const mcpTools: Record<string, import("@gco/controller-mcp").McpTool> = isLastStep
+        ? {}
+        : yield* mcpController.tools()
+
       // Use the agent's declared system prompt, falling back to a generic one
       const systemPrompt =
         agentInfo?.system ??
@@ -1637,8 +1647,8 @@ The conversation you see already contains tool calls and their results. Write a 
         ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : []),
       ]
 
-      // Build tool definitions
-      const toolDefs: ToolDefinition[] =
+      // Build tool definitions — built-ins first, then MCP tools.
+      const builtinDefs =
         toolMaterialization?.definitions.map(
           (d) =>
             new ToolDefinition({
@@ -1647,6 +1657,15 @@ The conversation you see already contains tool calls and their results. Write a 
               inputSchema: d.inputSchema as any,
             }),
         ) ?? []
+      const mcpDefs = Object.entries(mcpTools).map(
+        ([wrappedName, entry]) =>
+          new ToolDefinition({
+            name: wrappedName,
+            description: entry.def.description ?? "",
+            inputSchema: (entry.def.inputSchema as any) ?? { type: "object", properties: {} },
+          }),
+      )
+      const toolDefs: ToolDefinition[] = [...builtinDefs, ...mcpDefs]
 
       // Build request
       const request = new LLMRequest({
@@ -1709,6 +1728,67 @@ The conversation you see already contains tool calls and their results. Write a 
                 }),
                 [],
               )
+              return
+            }
+
+            // MCP tools are dispatched directly to their client. Built-in
+            // tools flow through the registry's settle() path as before.
+            const mcpEntry = mcpTools[event.name]
+            if (mcpEntry) {
+              yield* Effect.uninterruptibleMask((restore) =>
+                restore(
+                  Effect.tryPromise(() =>
+                    mcpEntry.client.callTool(
+                      { name: mcpEntry.def.name, arguments: (event.input ?? {}) as Record<string, unknown> },
+                      undefined,
+                      mcpEntry.timeout ? { timeout: mcpEntry.timeout } : undefined,
+                    ),
+                  ),
+                ).pipe(
+                  Effect.flatMap((raw) => {
+                    const r = raw as { isError?: boolean; content?: Array<{ type: string; text?: string }> }
+                    const text = (r.content ?? [])
+                      .filter((c) => c?.type === "text" && typeof c.text === "string")
+                      .map((c) => c.text!)
+                      .join("\n")
+                    if (r.isError) {
+                      return publisher.publish(
+                        LLMEvent.toolResult({
+                          id: event.id,
+                          name: event.name,
+                          result: { type: "error", value: text || "MCP tool returned an error" },
+                        }),
+                        [],
+                      )
+                    }
+                    return publisher.publish(
+                      LLMEvent.toolResult({
+                        id: event.id,
+                        name: event.name,
+                        result: { type: "text", value: text },
+                        output: {
+                          content: [{ type: "text" as const, text }],
+                          structured: r,
+                        },
+                      }),
+                      [],
+                    )
+                  }),
+                  Effect.catch((err: unknown) =>
+                    publisher.publish(
+                      LLMEvent.toolResult({
+                        id: event.id,
+                        name: event.name,
+                        result: {
+                          type: "error",
+                          value: err instanceof Error ? err.message : String(err),
+                        },
+                      }),
+                      [],
+                    ),
+                  ),
+                ),
+              ).pipe(FiberSet.run(toolFibers))
               return
             }
 

@@ -1,10 +1,10 @@
 /**
  * McpController — Effect service managing MCP client connections.
  *
- * Ported from packages/opencode/src/mcp/index.ts.
+ * Ported from packages/lotus-code/src/mcp/index.ts.
  *
  * Manages stdio and HTTP-based MCP clients, tool discovery, OAuth flows,
- * and connection lifecycle. Replaces opencode-specific deps (InstanceState,
+ * and connection lifecycle. Replaces lotus-code-specific deps (InstanceState,
  * EffectBridge, Config.Service, EventV2Bridge) with standalone equivalents
  * suitable for @gco/controller-mcp.
  */
@@ -166,12 +166,16 @@ export interface Interface {
   readonly resourceTemplates: (
     clientName?: string,
   ) => Effect.Effect<Record<string, ResourceTemplateInfo & { client: string }>>
+  readonly config: () => Effect.Effect<Record<string, McpConfig.Info>>
+  readonly serverDefs: () => Effect.Effect<Record<string, string[]>>
   readonly add: (
     name: string,
     mcp: McpConfig.Info,
   ) => Effect.Effect<{ status: Record<string, Status> | Status }>
   readonly connect: (name: string) => Effect.Effect<void, NotFoundError>
   readonly disconnect: (name: string) => Effect.Effect<void, NotFoundError>
+  /** Fully remove a server (closes the client and purges config/status/defs). */
+  readonly remove: (name: string) => Effect.Effect<void>
   readonly getPrompt: (
     clientName: string,
     name: string,
@@ -193,7 +197,7 @@ export interface Interface {
   readonly supportsOAuth: (mcpName: string) => Effect.Effect<boolean, NotFoundError>
   readonly hasStoredTokens: (mcpName: string) => Effect.Effect<boolean>
   readonly getAuthStatus: (mcpName: string) => Effect.Effect<AuthStatus>
-  /** Load an initial set of MCP configs (e.g. from opencode.json). */
+  /** Load an initial set of MCP configs (e.g. from lotus-code.json). */
   readonly loadConfig: (
     configs: Record<string, McpConfig.Info>,
     directory: string,
@@ -220,7 +224,7 @@ export class Service extends Context.Service<Service, Interface>()("@gco/McpCont
 // ---------------------------------------------------------------------------
 
 function createClient(directory: string): MCPClient {
-  const client = new Client({ name: "opencode", version: "0.1.0" }, CLIENT_OPTIONS)
+  const client = new Client({ name: "lotus-code", version: "0.1.0" }, CLIENT_OPTIONS)
   client.setRequestHandler(ListRootsRequestSchema, () =>
     Promise.resolve({ roots: [{ uri: pathToFileURL(directory).href }] }),
   )
@@ -374,7 +378,7 @@ export function makeLayer(
                   lastStatus = { status: "needs_auth" as const }
                   mcpCallbacks.onNeedsAuth?.(
                     key,
-                    `Server "${key}" requires authentication. Run: opencode mcp auth ${key}`,
+                    `Server "${key}" requires authentication. Run: lotus-code mcp auth ${key}`,
                   )
                 }
                 return Effect.succeed(undefined)
@@ -411,7 +415,7 @@ export function makeLayer(
           cwd,
           env: {
             ...process.env,
-            ...(cmd === "opencode" ? { BUN_BE_BUN: "1" } : {}),
+            ...(cmd === "lotus-code" ? { BUN_BE_BUN: "1" } : {}),
             ...mcp.environment,
           },
         })
@@ -751,6 +755,18 @@ export function makeLayer(
         )
       })
 
+      const config = Effect.fn("McpController.config")(function* () {
+        return { ...s.config }
+      })
+
+      const serverDefs = Effect.fn("McpController.serverDefs")(function* () {
+        const result: Record<string, string[]> = {}
+        for (const [name, defs] of Object.entries(s.defs)) {
+          result[name] = defs.map((d) => d.name)
+        }
+        return result
+      })
+
       const add = Effect.fn("McpController.add")(function* (name: string, mcp: McpConfig.Info) {
         s.config[name] = mcp
         yield* createAndStore(name, mcp)
@@ -766,6 +782,17 @@ export function makeLayer(
         yield* requireMcpConfig(name)
         yield* closeClient(name)
         s.status[name] = { status: "disabled" }
+      })
+
+      /** Fully purge a server's in-memory state (used by the /mcp DELETE flow). */
+      const remove = Effect.fn("McpController.remove")(function* (name: string) {
+        if (!s.config[name]) return
+        yield* closeClient(name).pipe(Effect.ignore)
+        delete s.config[name]
+        delete s.status[name]
+        delete s.defs[name]
+        delete s.instructions[name]
+        delete s.clients[name]
       })
 
       // -----------------------------------------------------------------------
@@ -960,7 +987,7 @@ export function makeLayer(
       })
 
       // -----------------------------------------------------------------------
-      // loadConfig — bulk-load from opencode.json (or equivalent)
+      // loadConfig — bulk-load from lotus-code.json (or equivalent)
       // -----------------------------------------------------------------------
 
       const loadConfig = Effect.fn("McpController.loadConfig")(function* (
@@ -1005,9 +1032,12 @@ export function makeLayer(
         prompts,
         resources,
         resourceTemplates,
+        config,
+        serverDefs,
         add,
         connect,
         disconnect,
+        remove,
         getPrompt,
         readResource,
         startAuth,

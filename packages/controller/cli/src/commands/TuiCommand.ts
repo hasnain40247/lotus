@@ -20,7 +20,7 @@ import { CredentialRepository, EventRepository, SessionRepository, ProjectReposi
 import { McpController } from "@gco/controller-mcp"
 import { QuestionTool, ToolRegistryService } from "@gco/controller-tool"
 import { QuestionStore } from "@gco/controller-tool/QuestionStore"
-import { AgentRegistry } from "@gco/controller-agent"
+import { AgentRegistry, AgentController } from "@gco/controller-agent"
 import { ProductionLayer } from "../bootstrap.js"
 import { startTuiServer, type TuiServerServices } from "../tui-server.js"
 
@@ -108,6 +108,7 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
       const projectRepo  = await rt.runPromise(ProjectRepository)
       const credRepo     = await rt.runPromise(CredentialRepository)
       const mcpCtrl      = await rt.runPromise(McpController.Service)
+      const agentCtrl    = await rt.runPromise(AgentController.Service)
       const toolRegistry = await rt.runPromise(ToolRegistryService)
 
       // Load stored API keys into env vars so ModelResolver picks them up
@@ -126,11 +127,39 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         toolRegistry.register({ question: QuestionTool.makeQuestionTool(questionStore) }),
       ).catch(() => {})
 
-      // Load MCP configs from lotus-code.json at startup
+      // Load MCP configs and provider API keys from lotus-code.json at startup
       const cfgFile = Bun.file(path.join(directory, "lotus-code.json"))
       const cfg = await cfgFile.exists() ? await cfgFile.json().catch(() => ({})) : {}
       if (cfg.mcp && typeof cfg.mcp === "object") {
         rt.runFork(mcpCtrl.loadConfig(cfg.mcp, directory))
+      }
+      if (cfg.agents && typeof cfg.agents === "object") {
+        const overrides = cfg.agents as Record<string, AgentRegistry.AgentOverride>
+        await rt.runPromise(
+          agentCtrl.transform((draft) => {
+            for (const [name, override] of Object.entries(overrides)) {
+              if (override.disabled) { draft.remove(name as any); continue }
+              draft.update(name as any, (agent) => {
+                if (override.description !== undefined) (agent as any).description = override.description
+                if (override.system !== undefined) (agent as any).system = override.system
+                if (override.mode !== undefined) (agent as any).mode = override.mode
+                if (override.model !== undefined) (agent as any).model = override.model
+                if (override.hidden !== undefined) (agent as any).hidden = override.hidden
+                if (override.permissions !== undefined) (agent as any).permissions = override.permissions
+              })
+            }
+          }),
+        ).catch(() => {})
+      }
+      // Load provider API keys from lotus-code.json (overrides env vars if not already set)
+      if (cfg.provider && typeof cfg.provider === "object") {
+        const p = cfg.provider as Record<string, any>
+        if (p.deepseek?.apiKey && !process.env.DEEPSEEK_API_KEY)
+          process.env.DEEPSEEK_API_KEY = p.deepseek.apiKey
+        if (p.anthropic?.apiKey && !process.env.ANTHROPIC_API_KEY)
+          process.env.ANTHROPIC_API_KEY = p.anthropic.apiKey
+        if (p.openai?.apiKey && !process.env.OPENAI_API_KEY)
+          process.env.OPENAI_API_KEY = p.openai.apiKey
       }
 
       const services: TuiServerServices = {
@@ -262,11 +291,34 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         addMcp: (name, config) =>
           rt.runPromise(mcpCtrl.add(name, config as any)).then((r) => r.status as any).catch((e) => ({ error: String(e) })),
 
+        addAgent: (name, override) =>
+          rt.runPromise(
+            agentCtrl.transform((draft) => {
+              draft.update(name as any, (agent) => {
+                if (override.description !== undefined) (agent as any).description = override.description
+                if (override.system !== undefined) (agent as any).system = override.system
+                if (override.mode !== undefined) (agent as any).mode = override.mode
+                if (override.model !== undefined) (agent as any).model = override.model
+              })
+            }),
+          ).catch(() => {}),
+
+        removeAgent: (name) =>
+          rt.runPromise(
+            agentCtrl.transform((draft) => {
+              draft.remove(name as any)
+            }),
+          ).catch(() => {}),
+
+
         connectMcp: (name) =>
           rt.runPromise(mcpCtrl.connect(name as any)).catch(() => {}),
 
         disconnectMcp: (name) =>
           rt.runPromise(mcpCtrl.disconnect(name as any)).catch(() => {}),
+
+        removeMcp: (name) =>
+          rt.runPromise(mcpCtrl.remove(name as any)).catch(() => {}),
 
         listCredentials: async () => {
           const creds = await rt.runPromise(credRepo.all()).catch(() => [] as any[])

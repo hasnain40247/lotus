@@ -44,8 +44,11 @@ export interface TuiServerServices {
   readonly listMcpServers: () => Promise<Array<{ id: string; name: string; status: string; error?: string; config: any; tools: string[] }>>
   readonly listProjects: () => Promise<Array<{ id: string; worktree: string; time: { created: number; updated: number } }>>
   readonly addMcp: (name: string, config: { type: "local"; command: string[]; cwd?: string; environment?: Record<string, string>; timeout?: number } | { type: "remote"; url: string; headers?: Record<string, string>; timeout?: number }) => Promise<Record<string, { status: string; error?: string }>>
+  readonly addAgent: (name: string, override: { description?: string; system?: string; mode?: "primary" | "subagent" | "all"; model?: string }) => Promise<void>
+  readonly removeAgent: (name: string) => Promise<void>
   readonly connectMcp: (name: string) => Promise<void>
   readonly disconnectMcp: (name: string) => Promise<void>
+  readonly removeMcp: (name: string) => Promise<void>
   readonly listCredentials: () => Promise<Array<{ integrationID: string }>>
   readonly setProviderKey: (providerID: string, key: string) => Promise<void>
   readonly listQuestions: (sessionID: string) => Promise<Array<{ id: string; sessionID: string; questions: readonly any[]; tool: any }>>
@@ -1252,6 +1255,114 @@ function handleRequest(
     })()
   }
 
+  // POST /agent — create a new agent (persists to lotus-code.json + registers at runtime)
+  // Body: { name: string, description?: string, system?: string, mode?: "primary"|"subagent"|"all", model?: string }
+  if (pathname === "/agent" && method === "POST") {
+    return (async () => {
+      let body: any = {}
+      try { body = await req.json() } catch { return json({ error: "Invalid JSON" }, 400) }
+      const { name, ...override } = body
+      if (!name || typeof name !== "string" || !/^[a-z][a-z0-9-]*$/i.test(name))
+        return json({ error: "name must match [a-zA-Z][a-zA-Z0-9-]*" }, 400)
+      if (override.mode && !["primary", "subagent", "all"].includes(override.mode))
+        return json({ error: "mode must be 'primary', 'subagent', or 'all'" }, 400)
+
+      // Persist to lotus-code.json under `agents` key
+      try {
+        const cfgPath = path.join(directory, "lotus-code.json")
+        const file = Bun.file(cfgPath)
+        const existing = await file.exists() ? await file.json().catch(() => ({})) : {}
+        existing.agents = existing.agents ?? {}
+        existing.agents[name] = override
+        await Bun.write(cfgPath, JSON.stringify(existing, null, 2) + "\n")
+      } catch (e) {
+        return json({ error: `Failed to persist: ${String(e)}` }, 500)
+      }
+
+      await services.addAgent(name, override).catch(() => {})
+      return json({ name, ...override })
+    })()
+  }
+
+  // DELETE /agent/:name — remove a user-defined agent (built-ins are protected)
+  const BUILT_IN_AGENT_IDS = new Set(["build", "explore", "plan", "general", "compaction", "title", "summary"])
+  const agentDeleteMatch = pathname.match(/^\/agent\/([^/]+)$/)
+  if (agentDeleteMatch && method === "DELETE") {
+    const name = decodeURIComponent(agentDeleteMatch[1]!)
+    return (async () => {
+      if (BUILT_IN_AGENT_IDS.has(name))
+        return json({ error: `Cannot delete built-in agent '${name}'` }, 400)
+
+      try {
+        const cfgPath = path.join(directory, "lotus-code.json")
+        const file = Bun.file(cfgPath)
+        if (await file.exists()) {
+          const existing = await file.json().catch(() => ({}))
+          if (existing.agents && typeof existing.agents === "object" && name in existing.agents) {
+            delete existing.agents[name]
+            await Bun.write(cfgPath, JSON.stringify(existing, null, 2) + "\n")
+          }
+        }
+      } catch (e) {
+        return json({ error: `Failed to persist: ${String(e)}` }, 500)
+      }
+
+      await services.removeAgent(name).catch(() => {})
+      return json({ name, deleted: true })
+    })()
+  }
+
+  // ── File search — GET /find/file?query=&limit= (used by @-mentions) ──────
+  if (pathname === "/find/file" && method === "GET") {
+    return (async () => {
+      const query = (url.searchParams.get("query") ?? "").toLowerCase()
+      const rawLimit = Number(url.searchParams.get("limit") ?? "50")
+      const limit = Math.max(1, Math.min(200, Number.isFinite(rawLimit) ? rawLimit : 50))
+      const results: string[] = []
+      try {
+        const glob = new Bun.Glob("**/*")
+        for await (const rel of glob.scan({
+          cwd: directory,
+          absolute: false,
+          onlyFiles: true,
+          dot: false,
+        })) {
+          // Skip common noisy roots. Bun.Glob doesn't support ignore patterns,
+          // so we filter by prefix.
+          if (
+            rel.startsWith("node_modules/") ||
+            rel.includes("/node_modules/") ||
+            rel.startsWith(".git/") ||
+            rel.startsWith("dist/") ||
+            rel.startsWith("build/") ||
+            rel.startsWith(".next/") ||
+            rel.startsWith(".turbo/")
+          ) continue
+          if (query && !rel.toLowerCase().includes(query)) continue
+          results.push(rel)
+          if (results.length >= limit) break
+        }
+      } catch {
+        return json([])
+      }
+      // Rank: basename startsWith wins over includes; shorter paths first.
+      const q = query
+      if (q) {
+        results.sort((a, b) => {
+          const ba = path.basename(a).toLowerCase()
+          const bb = path.basename(b).toLowerCase()
+          const sa = ba.startsWith(q) ? 0 : ba.includes(q) ? 1 : 2
+          const sb = bb.startsWith(q) ? 0 : bb.includes(q) ? 1 : 2
+          if (sa !== sb) return sa - sb
+          return a.length - b.length
+        })
+      } else {
+        results.sort((a, b) => a.length - b.length)
+      }
+      return json(results.slice(0, limit))
+    })()
+  }
+
   // ── Skills (markdown files in skills/) ───────────────────────────────────
   if (pathname === "/skill" && method === "GET") {
     return (async () => {
@@ -1651,7 +1762,7 @@ function handleRequest(
   if (mcpDeleteMatch && method === "DELETE") {
     const name = decodeURIComponent(mcpDeleteMatch[1]!)
     return (async () => {
-      await services.disconnectMcp(name).catch(() => {})
+      await services.removeMcp(name).catch(() => {})
       try {
         const cfgPath = path.join(directory, "lotus-code.json")
         const file = Bun.file(cfgPath)

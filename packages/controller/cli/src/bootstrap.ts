@@ -68,7 +68,6 @@ import {
   AgentTool,
   TaskTool,
   SkillTool,
-  McpWebsearchTool,
   LspTool,
 } from "@gco/controller-tool"
 
@@ -430,10 +429,6 @@ const builtinToolsLayer = Layer.merge(
           }),
       }
 
-      const mcpWebsearchSvc: McpWebsearchTool.IMcpWebsearchService = {
-        search: () => Effect.fail(new Error("No MCP web search server configured")),
-      }
-
       const lspSvc: LspTool.ILspService = {
         hasClients: () => Effect.succeed(false),
         touchFile: () => Effect.void,
@@ -465,7 +460,6 @@ const builtinToolsLayer = Layer.merge(
         agent:              AgentTool.makeAgentTool(agentSvc),
         task:               TaskTool.makeTaskTool(taskSvc),
         skill:              SkillTool.makeSkillTool(skillSvc),
-        mcp_websearch:      McpWebsearchTool.makeMcpWebsearchTool(mcpWebsearchSvc),
         lsp:                LspTool.makeLspTool(lspSvc, process.cwd()),
       })
     }),
@@ -483,6 +477,9 @@ const infraLayer = Layer.mergeAll(
   agentLayer,
   builtinToolsLayer,
   mcpAuthLayer,
+  // McpController lives in infra so SessionRunner can merge MCP tools into
+  // the LLM tool catalog on every turn.
+  mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
   toolPermissionEnforcerLayer.pipe(Layer.provide(modelReposLayer)),
 )
 
@@ -490,11 +487,11 @@ const infraLayer = Layer.mergeAll(
 const sessionRunnerWithDeps = sessionRunnerLayer.pipe(Layer.provide(infraLayer))
 
 // Top-level controllers — need repos, GCSStorage, and SessionRunner.
+// (McpController lives in infraLayer so SessionRunner can see it.)
 const controllersLayer = Layer.mergeAll(
   sessionControllerLayer,
   sessionExporterLayer,
   sessionImporterLayer,
-  mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
 ).pipe(Layer.provide(Layer.merge(infraLayer, sessionRunnerWithDeps)))
 
 // Populate subagentRuntime after controllers are ready. Depends on
@@ -549,6 +546,8 @@ const testInfraLayer = Layer.mergeAll(
   agentLayer,
   builtinToolsLayer,
   mcpAuthLayer,
+  // McpController in infra so tests exercising SessionRunner can wire tools.
+  mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
   testModelResolverLayer,
   toolPermissionEnforcerLayer.pipe(Layer.provide(TestModelLayer)),
 )
@@ -559,7 +558,6 @@ const testControllersLayer = Layer.mergeAll(
   sessionControllerLayer,
   sessionExporterLayer,
   sessionImporterLayer,
-  mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
 ).pipe(Layer.provide(Layer.merge(testInfraLayer, testSessionRunnerWithDeps)))
 
 const testSubagentWiringLayer = Layer.effectDiscard(

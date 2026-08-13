@@ -522,6 +522,27 @@ function Chat() {
   const [running, setRunning] = createSignal(false)
   const [spinnerWord, setSpinnerWord] = createSignal(pickSpinnerWord())
   const [shinePos, setShinePos] = createSignal(0)
+
+  // Cost / time / context tracking.
+  // `lastAssistant` mirrors the freshest assistant AssistantMessage so we can
+  // compute live token totals, context %, and cumulative cost — the base store
+  // only keeps { id, role, agent } for rendering.
+  const [lastAssistant, setLastAssistant] = createSignal<{
+    id: string
+    timeCreated: number
+    providerID: string
+    modelID: string
+    cost: number
+    tokens: {
+      input: number
+      output: number
+      reasoning: number
+      cache: { read: number; write: number }
+    }
+  }>()
+  const [modelLimits, setModelLimits] = createSignal<Record<string, number>>({})
+  const [turnStart, setTurnStart] = createSignal<number | undefined>(undefined)
+  const [nowTs, setNowTs] = createSignal(Date.now())
   const [store, setStore] = createStore<StoreShape>({
     msgOrder: [],
     msgs: {},
@@ -570,12 +591,97 @@ function Chat() {
     setAgentIndex(buildIdx >= 0 ? buildIdx : 0)
   })
 
+  // Model context-limit lookup, keyed as "providerID/modelID".
+  onMount(async () => {
+    try {
+      const res = await sdk.client.provider.list({} as any).catch(() => null)
+      const data = res?.data as
+        | {
+            providers?: Array<{
+              id: string
+              models: Record<string, { limit?: { context?: number } }>
+            }>
+          }
+        | undefined
+      const providers = data?.providers ?? []
+      const map: Record<string, number> = {}
+      for (const p of providers) {
+        for (const [mid, m] of Object.entries(p.models ?? {})) {
+          const c = m?.limit?.context
+          if (typeof c === "number" && c > 0) map[`${p.id}/${mid}`] = c
+        }
+      }
+      setModelLimits(map)
+    } catch {
+      // Provider list is best-effort; context % just won't show a percentage.
+    }
+  })
+
+  // Turn timer: stamp on every idle→busy transition, but leave `turnStart`
+  // pinned once the turn ends so the "3s · 245 tok" line stays visible next to
+  // where the spinner was until the next turn overwrites it.
+  createEffect(() => {
+    if (running()) {
+      setTurnStart(Date.now())
+      setNowTs(Date.now())
+    }
+  })
+
+  // Only tick while the model is running — when it finishes, `nowTs` freezes,
+  // which freezes `elapsedSecs` at the final duration.
+  createEffect(() => {
+    if (!running()) return
+    const timer = setInterval(() => setNowTs(Date.now()), 1000)
+    onCleanup(() => clearInterval(timer))
+  })
+
   createEffect(() => {
     if (!running()) return
     setSpinnerWord(pickSpinnerWord())
     const wordTimer = setInterval(() => setSpinnerWord(pickSpinnerWord()), 2500)
     onCleanup(() => clearInterval(wordTimer))
   })
+
+  const elapsedSecs = () => {
+    const start = turnStart()
+    if (start === undefined) return 0
+    return Math.max(0, Math.floor((nowTs() - start) / 1000))
+  }
+
+  // Output tokens for the current turn only — filter by whether the last
+  // AssistantMessage was created after this turn started (small backdate for
+  // clock skew between server and client).
+  const liveOutputTokens = () => {
+    const start = turnStart()
+    const last = lastAssistant()
+    if (start === undefined || !last) return 0
+    if (last.timeCreated < start - 1000) return 0
+    return last.tokens.output
+  }
+
+  const streamingStats = () => {
+    const parts: string[] = []
+    const secs = elapsedSecs()
+    if (secs > 0) parts.push(`${secs}s`)
+    const t = liveOutputTokens()
+    if (t > 0) parts.push(`${t.toLocaleString()} tok`)
+    return parts.join(" · ")
+  }
+
+  const contextUsage = () => {
+    const last = lastAssistant()
+    if (!last) return undefined
+    const tot =
+      last.tokens.input +
+      last.tokens.output +
+      last.tokens.reasoning +
+      last.tokens.cache.read +
+      last.tokens.cache.write
+    if (tot <= 0) return undefined
+    const limit = modelLimits()[`${last.providerID}/${last.modelID}`]
+    if (!limit) return `${tot.toLocaleString()} tok`
+    return `${Math.round((tot / limit) * 100)}% (${tot.toLocaleString()})`
+  }
 
   createEffect(() => {
     if (!running()) return
@@ -905,6 +1011,30 @@ function Chat() {
           role: msg.role as "user" | "assistant",
           agent: (msg as { agent?: string }).agent,
         })
+
+        if (msg.role === "assistant") {
+          const a = msg as {
+            id: string
+            providerID: string
+            modelID: string
+            cost?: number
+            time: { created: number }
+            tokens: {
+              input: number
+              output: number
+              reasoning: number
+              cache: { read: number; write: number }
+            }
+          }
+          setLastAssistant({
+            id: a.id,
+            timeCreated: a.time.created,
+            providerID: a.providerID,
+            modelID: a.modelID,
+            cost: a.cost ?? 0,
+            tokens: a.tokens,
+          })
+        }
       } else if (payload.type === "message.part.updated") {
         const part = payload.properties.part
         // Only handle text, reasoning, and tool parts
@@ -1068,17 +1198,22 @@ function Chat() {
             />
           )}
         </For>
-        <Show when={running()}>
-          <box paddingLeft={4} paddingTop={1} flexShrink={0}>
-            <text>
-              {/* Index (not For) — chars in the word repeat (e.g. two "c"s in
-                  "Concocting"), and For's referential-keying gets confused when
-                  primitive items collide, leaving stale nodes from the prior
-                  word bleeding into the new one. */}
-              <Index each={(spinnerWord() + "…").split("")}>
-                {(ch, i) => <span style={{ fg: shineColorFor(i, shinePos()) }}>{ch()}</span>}
-              </Index>
-            </text>
+        <Show when={running() || streamingStats()}>
+          <box paddingLeft={4} paddingTop={1} flexShrink={0} flexDirection="row" gap={2}>
+            <Show when={running()}>
+              <text>
+                {/* Index (not For) — chars in the word repeat (e.g. two "c"s in
+                    "Concocting"), and For's referential-keying gets confused when
+                    primitive items collide, leaving stale nodes from the prior
+                    word bleeding into the new one. */}
+                <Index each={(spinnerWord() + "…").split("")}>
+                  {(ch, i) => <span style={{ fg: shineColorFor(i, shinePos()) }}>{ch()}</span>}
+                </Index>
+              </text>
+            </Show>
+            <Show when={streamingStats()}>
+              <text fg={C_DIM}>{streamingStats()}</text>
+            </Show>
           </box>
         </Show>
       </scrollbox>
@@ -1148,23 +1283,29 @@ function Chat() {
         />
       </box>
 
-      {/* Agent footer — shows current agent, tab hint */}
+      {/* Agent footer — shows current agent, tab hint, and turn/context stats */}
       <Show when={agents().length > 0}>
         <box
           flexShrink={0}
           flexDirection="row"
+          justifyContent="space-between"
           paddingLeft={2}
           paddingRight={2}
           backgroundColor={C_BG}
         >
-          <text fg={agentColor(currentAgentName())} attributes={TextAttributes.BOLD}>
-            {"▎ "}
-            {currentAgentName()}
-          </text>
-          <text fg={C_DIM}>
-            {"   "}
-            {agents().length > 1 ? "tab · next agent" : ""}
-          </text>
+          <box flexDirection="row">
+            <text fg={agentColor(currentAgentName())} attributes={TextAttributes.BOLD}>
+              {"▎ "}
+              {currentAgentName()}
+            </text>
+            <text fg={C_DIM}>
+              {"   "}
+              {agents().length > 1 ? "tab · next agent" : ""}
+            </text>
+          </box>
+          <Show when={contextUsage()}>
+            <text fg={C_DIM}>{contextUsage()}</text>
+          </Show>
         </box>
       </Show>
     </box>

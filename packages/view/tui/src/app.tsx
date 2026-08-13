@@ -26,6 +26,11 @@ import { SlashPalette, PALETTE_VIEWPORT, filterSlashCommands } from "./component
 import { AgentPalette, type AgentPaletteItem, type AgentPalettePhase } from "./component/agent-palette"
 import { MentionPalette, MENTION_VIEWPORT } from "./component/mention-palette"
 import { McpPalette, type McpPaletteItem, type McpPalettePhase } from "./component/mcp-palette"
+import { ThemePalette, type ThemePaletteItem, type ThemeName } from "./component/theme-palette"
+import { lotusArt } from "./logo"
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as pathMod from "node:path"
 import { write as clipboardWrite } from "./clipboard"
 import type { EventSource } from "./context/sdk"
 import type { Args } from "./context/args"
@@ -36,15 +41,67 @@ import { cliErrorMessage, errorFormat } from "./util/error"
 
 registerLotusCodeSpinner()
 
-// ─── Color palette ─────────────────────────────────────────────────────────────
-const C_BG     = RGBA.fromHex("#F5F1E8")  // paper cream bg
-const C_EGG    = RGBA.fromHex("#1A1A1A")  // near-black — assistant text
-const C_WHITE  = RGBA.fromHex("#000000")  // pure black — user text
-const C_DIM    = RGBA.fromHex("#6B5D45")  // warm brown-gray — tool/muted text
-const C_MUTED  = RGBA.fromHex("#C8B896")  // warm border/divider
-const C_INPUT  = RGBA.fromHex("#EEE7D5")  // slightly darker cream — input bg
-const C_ACCENT = RGBA.fromHex("#8B7355")  // warm brown — running indicator
-const C_USER_BG = RGBA.fromHex("#DBCFB0")  // warm tan — user message bubble
+// ─── Theme system ──────────────────────────────────────────────────────────────
+// Palette resolves at module load from the global config file. Changing the
+// theme via /theme rewrites this config; the TUI must be restarted for a
+// new palette to apply.
+
+const GLOBAL_CONFIG_PATH = pathMod.join(os.homedir(), ".lotus-code", "config.json")
+
+type Palette = {
+  bg: string
+  egg: string     // primary text
+  white: string   // strongest text (user messages)
+  dim: string     // muted / tool text
+  muted: string   // borders & divider band
+  input: string   // input textarea bg
+  accent: string  // running indicator, palette headers
+  userBg: string  // user message bubble bg
+}
+
+const LIGHT_PALETTE: Palette = {
+  bg:     "#F5F1E8",  // paper cream
+  egg:    "#1A1A1A",  // near-black
+  white:  "#000000",
+  dim:    "#6B5D45",  // warm brown-gray
+  muted:  "#C8B896",  // warm border/divider
+  input:  "#EEE7D5",
+  accent: "#8B7355",
+  userBg: "#DBCFB0",
+}
+
+const DARK_PALETTE: Palette = {
+  bg:     "#222222",  // neutral dark
+  egg:    "#E5D9BE",  // beige body text
+  white:  "#F5EFDC",  // brighter beige for user text
+  dim:    "#8F8577",  // muted beige-gray
+  muted:  "#3A3835",  // neutral border/divider
+  input:  "#2D2D2D",  // slightly lifted from bg
+  accent: "#C8B896",  // warm light accent
+  userBg: "#333330",  // subtle warm-tinted bubble
+}
+
+function readGlobalConfig(): { theme?: ThemeName } {
+  try {
+    const raw = fs.readFileSync(GLOBAL_CONFIG_PATH, "utf8")
+    return JSON.parse(raw)
+  } catch {
+    return {}
+  }
+}
+
+const ACTIVE_THEME: ThemeName = readGlobalConfig().theme === "dark" ? "dark" : "light"
+const PALETTE: Palette = ACTIVE_THEME === "dark" ? DARK_PALETTE : LIGHT_PALETTE
+
+// ─── Color palette (derived from ACTIVE_THEME) ─────────────────────────────────
+const C_BG      = RGBA.fromHex(PALETTE.bg)
+const C_EGG     = RGBA.fromHex(PALETTE.egg)
+const C_WHITE   = RGBA.fromHex(PALETTE.white)
+const C_DIM     = RGBA.fromHex(PALETTE.dim)
+const C_MUTED   = RGBA.fromHex(PALETTE.muted)
+const C_INPUT   = RGBA.fromHex(PALETTE.input)
+const C_ACCENT  = RGBA.fromHex(PALETTE.accent)
+const C_USER_BG = RGBA.fromHex(PALETTE.userBg)
 
 // Minimal empty syntax style — the <markdown> element needs one but we don't
 // need code-syntax highlighting inside assistant prose.
@@ -722,6 +779,90 @@ function Chat() {
     onCleanup(() => clearInterval(wordTimer))
   })
 
+  // ── Landing hero → chat transition ───────────────────────────────────────
+  // When there are no messages yet, we show a centered landing screen with
+  // the animated lotus ASCII + a "lotus" wordmark under the input. On the
+  // user's first submit we run a ~500ms transition: the ASCII fades to
+  // background, the centered wordmark fades out while a corner wordmark
+  // fades in, and a flexGrow spacer under the input collapses so the input
+  // settles at the bottom of the terminal.
+  const [hasStartedChat, setHasStartedChat] = createSignal(false)
+  const [transitionT, setTransitionT] = createSignal(0)  // 0 = fresh, 1 = chat
+  createEffect(() => {
+    if (!hasStartedChat()) return
+    const start = performance.now()
+    const duration = 500
+    const raf = setInterval(() => {
+      const t = Math.min(1, (performance.now() - start) / duration)
+      setTransitionT(t)
+      if (t >= 1) clearInterval(raf)
+    }, 32)
+    onCleanup(() => clearInterval(raf))
+  })
+
+  // Lotus eye blinking — reuses the layout from component/logo.tsx: row 7
+  // of the ASCII holds the eyes at char offsets 8-9 (left) + 14-15 (right).
+  const LOTUS_EYE_ROW = 7
+  const eyeLineChars = Array.from(lotusArt[LOTUS_EYE_ROW] ?? "")
+  const EYE_PREFIX = eyeLineChars.slice(0, 8).join("")
+  const LEFT_EYE_OPEN = eyeLineChars.slice(8, 10).join("")
+  const EYE_MIDDLE = eyeLineChars.slice(10, 14).join("")
+  const RIGHT_EYE_OPEN = eyeLineChars.slice(14, 16).join("")
+  const EYE_SUFFIX = eyeLineChars.slice(16).join("")
+  const LEFT_EYE_CLOSED = "⠒⠒"
+  const RIGHT_EYE_CLOSED = "⠒⠒"
+  const [eyesOpen, setEyesOpen] = createSignal(true)
+  createEffect(() => {
+    if (hasStartedChat()) return   // stop blinking once we've transitioned
+    let closeTimer: ReturnType<typeof setTimeout>
+    let openTimer: ReturnType<typeof setTimeout>
+    const schedule = () => {
+      closeTimer = setTimeout(() => {
+        setEyesOpen(false)
+        openTimer = setTimeout(() => {
+          setEyesOpen(true)
+          schedule()
+        }, 130)
+      }, 2500 + Math.random() * 2000)
+    }
+    schedule()
+    onCleanup(() => {
+      clearTimeout(closeTimer)
+      clearTimeout(openTimer)
+    })
+  })
+  const lotusRowText = (row: string, i: number) => {
+    if (i !== LOTUS_EYE_ROW) return row
+    return (
+      EYE_PREFIX +
+      (eyesOpen() ? LEFT_EYE_OPEN : LEFT_EYE_CLOSED) +
+      EYE_MIDDLE +
+      (eyesOpen() ? RIGHT_EYE_OPEN : RIGHT_EYE_CLOSED) +
+      EYE_SUFFIX
+    )
+  }
+
+  // Popping pink used for both the centered and corner "lotus" wordmarks.
+  const LOTUS_PINK = { r: 0xE6, g: 0x3D, b: 0x8A }   // hot rose — pops on either palette
+
+  // Fade interpolation targets against the active theme's bg color so the
+  // "fade to invisible" effect actually blends with the surface.
+  const bgRgb = () => parseHex(PALETTE.bg)
+
+  const lotusFadeColor = () => {
+    const t = transitionT()
+    return RGBA.fromHex(blendHex(LOTUS_PINK, bgRgb(), t))
+  }
+  const centerLabelColor = () => {
+    const t = transitionT()
+    return RGBA.fromHex(blendHex(LOTUS_PINK, bgRgb(), t))
+  }
+  const cornerLabelColor = () => {
+    // Reverse — bg → pink as t → 1.
+    const t = hasStartedChat() ? transitionT() : 0
+    return RGBA.fromHex(blendHex(bgRgb(), LOTUS_PINK, t))
+  }
+
   // Weird circular symbol next to the spinner word — cycles fast through a
   // grab-bag of dots, half-circles, asterisks and braille dots.
   const [spinnerSymbol, setSpinnerSymbol] = createSignal(pickSpinnerSymbol())
@@ -1135,6 +1276,68 @@ function Chat() {
     setAgentModalPhase({ type: "select", items: p.items, index: p.returnIndex })
   }
 
+  // ── /theme modal ────────────────────────────────────────────────────────
+  const [themeModalOpen, setThemeModalOpen] = createSignal(false)
+  const [themeIndex, setThemeIndex] = createSignal(0)
+
+  const themeItems = (): ThemePaletteItem[] => {
+    const items: ThemePaletteItem[] = [
+      {
+        name: "light",
+        label: "Light",
+        description: "warm cream paper — current default",
+        swatchBg: LIGHT_PALETTE.bg,
+        swatchFg: LIGHT_PALETTE.egg,
+        current: ACTIVE_THEME === "light",
+      },
+      {
+        name: "dark",
+        label: "Dark",
+        description: "beige on deep warm brown",
+        swatchBg: DARK_PALETTE.bg,
+        swatchFg: DARK_PALETTE.egg,
+        current: ACTIVE_THEME === "dark",
+      },
+    ]
+    return items
+  }
+
+  function openThemeModal() {
+    setThemeIndex(ACTIVE_THEME === "dark" ? 1 : 0)
+    setThemeModalOpen(true)
+  }
+  function closeThemeModal() { setThemeModalOpen(false) }
+
+  function moveThemeSelection(delta: number) {
+    const items = themeItems()
+    const raw = themeIndex() + delta
+    const next = raw < 0 ? items.length - 1 : raw >= items.length ? 0 : raw
+    setThemeIndex(next)
+  }
+
+  async function selectTheme(name: ThemeName) {
+    try {
+      const dir = pathMod.dirname(GLOBAL_CONFIG_PATH)
+      fs.mkdirSync(dir, { recursive: true })
+      let existing: Record<string, unknown> = {}
+      try { existing = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, "utf8")) } catch {}
+      existing.theme = name
+      fs.writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n")
+    } catch (e) {
+      showStatus(`Failed to save theme: ${String(e)}`, "error")
+      return
+    }
+    closeThemeModal()
+    if (name === ACTIVE_THEME) showStatus(`Theme is already ${name}`)
+    else showStatus(`Theme saved (${name}) — restart to apply`, "warn")
+  }
+
+  function confirmThemeSelection() {
+    const item = themeItems()[themeIndex()]
+    if (!item) return
+    void selectTheme(item.name)
+  }
+
   // ── /mcp modal ──────────────────────────────────────────────────────────
   const [mcpModalPhase, setMcpModalPhase] = createSignal<McpPalettePhase | null>(null)
   const mcpModalOpen = () => mcpModalPhase() !== null
@@ -1440,6 +1643,10 @@ function Chat() {
         void openMcpModal()
         return
       }
+      case "theme": {
+        openThemeModal()
+        return
+      }
       default:
         showStatus(`/${name} isn't wired up in this UI yet`, "warn")
     }
@@ -1451,6 +1658,15 @@ function Chat() {
   // palette is open, and for agent cycling (tab/shift+tab) while it is closed.
   onMount(() => {
     const listener = (key: KeyEvent) => {
+      // Theme modal open: navigate + select.
+      if (themeModalOpen()) {
+        if (key.name === "escape") { closeThemeModal(); key.preventDefault(); return }
+        if (key.name === "up") { moveThemeSelection(-1); key.preventDefault(); return }
+        if (key.name === "down") { moveThemeSelection(1); key.preventDefault(); return }
+        if (key.name === "return") { confirmThemeSelection(); key.preventDefault(); return }
+        return
+      }
+
       // MCP modal open: intercept navigation keys.
       const mcp = mcpModalPhase()
       if (mcp) {
@@ -1865,6 +2081,8 @@ function Chat() {
     }
 
     inputEl?.setText("")
+    // First real user submit — kicks the landing → chat hero transition.
+    if (!hasStartedChat()) setHasStartedChat(true)
     const sid = await ensureSessionID()
     if (!sid) return
     await sdk.client.session
@@ -1877,6 +2095,24 @@ function Chat() {
 
   return (
     <box flexDirection="column" flexGrow={1} backgroundColor={C_BG}>
+      {/* Corner wordmark — fades in as the landing transition completes. */}
+      <Show when={hasStartedChat()}>
+        <box
+          flexShrink={0}
+          flexDirection="row"
+          justifyContent="flex-end"
+          paddingLeft={3}
+          paddingRight={3}
+          paddingTop={1}
+          paddingBottom={1}
+          backgroundColor={C_BG}
+        >
+          <text fg={cornerLabelColor()} attributes={TextAttributes.BOLD}>
+            lotus
+          </text>
+        </box>
+      </Show>
+
       {/* Messages */}
       <scrollbox
         ref={(r: any) => (scrollEl = r)}
@@ -1887,6 +2123,27 @@ function Chat() {
         verticalScrollbarOptions={{ visible: false }}
       >
         <box height={1} />
+        {/* Landing hero — centered ASCII lotus + wordmark, sits directly
+            above the input while fresh; fades out during the transition. */}
+        <Show when={transitionT() < 1}>
+          <box
+            flexGrow={1}
+            flexDirection="column"
+            justifyContent="flex-end"
+            alignItems="center"
+            paddingBottom={1}
+          >
+            <For each={lotusArt}>
+              {(row, i) => (
+                <text fg={lotusFadeColor()}>{lotusRowText(row, i())}</text>
+              )}
+            </For>
+            <box height={1} />
+            <text fg={centerLabelColor()} attributes={TextAttributes.BOLD}>
+              lotus
+            </text>
+          </box>
+        </Show>
         <For each={store.msgOrder}>
           {(msgID) => (
             <MessageRow
@@ -1968,6 +2225,19 @@ function Chat() {
         phase={() => mcpModalPhase() as McpPalettePhase}
       />
 
+      {/* Theme modal (opens on /theme) */}
+      <ThemePalette
+        visible={themeModalOpen}
+        items={themeItems}
+        index={themeIndex}
+        bg={() => C_INPUT}
+        border={() => C_MUTED}
+        text={() => C_EGG}
+        dim={() => C_DIM}
+        selBg={() => C_USER_BG}
+        accent={() => C_ACCENT}
+      />
+
       {/* @ mention palette (appears when typing @<query> in the input) */}
       <MentionPalette
         visible={mentionOpen}
@@ -2024,6 +2294,13 @@ function Chat() {
           }}
         />
       </box>
+
+      {/* Landing spacer — mirrors the scrollbox's flexGrow so the input
+          floats to the vertical center of the terminal during the hero
+          screen; unmounts once the transition completes. */}
+      <Show when={transitionT() < 1}>
+        <box flexGrow={1} backgroundColor={C_BG} />
+      </Show>
 
       {/* Agent footer — shows current agent, tab hint, and turn/context stats */}
       <Show when={agents().length > 0}>

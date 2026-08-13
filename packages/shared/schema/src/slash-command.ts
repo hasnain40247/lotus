@@ -24,4 +24,5 @@ export const registry: readonly Info[] = [
   { name: "diff",       description: "Open the diff viewer" },
   { name: "agent",      description: "Create a new agent" },
   { name: "mcp",        description: "Manage MCP servers" },
+  { name: "theme",      description: "Switch between light and dark themes" },
 ]

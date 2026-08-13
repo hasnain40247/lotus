@@ -589,7 +589,7 @@ function toolCallPart(
 function toolResultPart(
   tool: SessionMessage.AssistantTool,
   providerMetadata: Record<string, unknown> | undefined,
-): ContentPart | undefined {
+): ContentPart {
   if (tool.state.status === "completed") {
     const result =
       tool.provider?.executed === true && tool.state.result !== undefined
@@ -616,7 +616,19 @@ function toolResultPart(
       providerMetadata: providerMetadata as any,
     })
   }
-  return undefined
+  // Pending/running — the tool never emitted a settled result event.
+  // Emitting the assistant tool_call without a paired tool result would produce
+  // an orphaned tool_call in the LLM request; OpenAI-compatible providers
+  // (DeepSeek, etc.) reject that with HTTP 400. Synthesize an error result so
+  // every tool_call in history always has a matching tool message.
+  return ToolResultPart.make({
+    id: tool.id,
+    name: tool.name,
+    result: { error: "Tool call did not complete", content: [], structured: {} },
+    resultType: "error",
+    providerExecuted: tool.provider?.executed,
+    providerMetadata: providerMetadata as any,
+  })
 }
 
 function assistantToLLM(message: SessionMessage.Assistant, model: Model): Message[] {
@@ -648,7 +660,7 @@ function assistantToLLM(message: SessionMessage.Assistant, model: Model): Messag
         ? ((item.provider?.resultMetadata ?? item.provider?.metadata) as any)
         : undefined,
     )
-    return result ? [call, result] : [call]
+    return [call, result]
   })
 
   const meaningful = content.filter((part) => {
@@ -673,7 +685,6 @@ function assistantToLLM(message: SessionMessage.Assistant, model: Model): Messag
           : undefined,
       ),
     )
-    .filter((r): r is ContentPart => r !== undefined)
     .map((r) => Message.tool(r as any))
 
   if (meaningful.length === 0) return results
@@ -1677,7 +1688,10 @@ export const layer = Layer.effect(
           }
 
           if (streamResult._tag === "Success" && !publisher.hasProviderError()) {
-            yield* publisher.failUnsettledTools("Provider did not return a tool result", true)
+            // Persist a durable tool.failed for any tool still unsettled. Marking
+            // them only in memory (silent=true) would leave the projection stuck
+            // on "running", producing orphaned tool_calls on future turns.
+            yield* publisher.failUnsettledTools("Provider did not return a tool result")
           }
 
           if (streamResult._tag === "Failure") {

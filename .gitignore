@@ -6,3 +6,6 @@ dist/
 .env.local
 application_default_credentials.json
 opencode.json
+lotus-code.json
+.DS_Store
+*.log

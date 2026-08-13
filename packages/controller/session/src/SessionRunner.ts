@@ -1461,6 +1461,134 @@ export const layer = Layer.effect(
         Effect.catchCause(() => Effect.void),
       )
 
+    // ── Interpreter turn ──────────────────────────────────────────────────
+    // Some models (notably deepseek-chat / deepseek-v4-*) won't emit prose
+    // after a tool call — they either stop silently or dump their internal
+    // tool_call markup as text. This helper fires ONE synthetic LLM request
+    // with an empty tools array so the model has nothing to call and must
+    // respond in plain language. It runs only when the last assistant
+    // message settled without any user-visible text.
+    const PROMPT_INTERPRETER = `You are summarizing tool output for the user in a coding assistant.
+
+The conversation you see already contains tool calls and their results. Write a brief natural-language response to the user that describes what you found or did, referring to the tool output.
+
+- Reply in plain English. No markup, no DSML tags, no tool call syntax.
+- Be concise: one or two short paragraphs.
+- Address the user directly. Don't restate the user's question verbatim.`
+
+    const runInterpreterTurn = Effect.fnUntraced(function* (sessionID: Session.ID) {
+      const events = yield* eventRepo.loadFromCompaction(sessionID)
+      const history = projectMessages(events)
+
+      // Look at everything since the most recent user prompt. If any assistant
+      // message in that window called a tool but no meaningful post-tool text
+      // was produced, run the interpreter. "Meaningful" means non-empty and
+      // not a DSML tool-call markup dump (deepseek-chat falls back to that).
+      const lastUserIdx = history.map((m) => m.type).lastIndexOf("user")
+      const recent = lastUserIdx >= 0 ? history.slice(lastUserIdx + 1) : history
+      const isMeaningfulText = (raw: string) => {
+        const t = raw.trim()
+        if (t.length === 0) return false
+        // Reject any text that looks like a raw tool-call payload — deepseek-chat
+        // and other models will sometimes dump these as text when they can't
+        // emit a structured tool_call.
+        const bad = [
+          "｜",         // fullwidth pipe (DSML)
+          "<|",         // angle+ascii pipe
+          "DSML",
+          "tool_calls",
+          "tool_call>",
+          "<tool>",
+          "<function_call",
+          "<function_calls>",
+          "invoke name=",
+        ]
+        for (const marker of bad) if (t.includes(marker)) return false
+        return true
+      }
+      let sawTool = false
+      let sawSummary = false
+      for (const m of recent) {
+        if (m.type !== "assistant") continue
+        for (const c of m.content) {
+          if (c.type === "tool") sawTool = true
+          else if (c.type === "text" && sawTool && isMeaningfulText(c.text)) {
+            sawSummary = true
+          }
+        }
+        if (sawSummary) break
+      }
+      if (!sawTool) return
+      if (sawSummary) return
+      process.stderr.write(`[runner:interpreter] firing for session ${sessionID}\n`)
+
+      const session = yield* getSession(sessionID)
+      const model = yield* modelResolver.resolve(session)
+      const llmMessages = toLLMMessages(history, model)
+
+      const request = new LLMRequest({
+        model,
+        system: [SystemPart.make(PROMPT_INTERPRETER)],
+        messages: llmMessages,
+        tools: [],
+      })
+
+      const response = yield* llmClient.generate(request)
+      const text = response?.text?.trim() ?? ""
+      if (!text) return
+
+      // Write a new assistant message: step.started → text.started → text.ended → step.ended.
+      const msgID = SessionMessage.ID.create()
+      const textID = "interp-0"
+      const ts = yield* DateTime.now
+      const durable = undefined as unknown as SessionEvent.DurableEvent["durable"]
+      const modelRef = (session.model ?? { id: model.id, providerID: model.provider }) as NonNullable<
+        Session.Info["model"]
+      >
+      yield* eventRepo.append(sessionID, [
+        {
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          type: "session.next.step.started",
+          durable,
+          data: {
+            sessionID,
+            timestamp: ts,
+            assistantMessageID: msgID,
+            agent: session.agent ?? "default",
+            model: modelRef,
+            snapshot: undefined,
+          },
+        } as unknown as SessionEvent.DurableEvent,
+        {
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          type: "session.next.text.started",
+          durable,
+          data: { sessionID, timestamp: ts, assistantMessageID: msgID, textID },
+        } as unknown as SessionEvent.DurableEvent,
+        {
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          type: "session.next.text.ended",
+          durable,
+          data: { sessionID, timestamp: ts, assistantMessageID: msgID, textID, text },
+        } as unknown as SessionEvent.DurableEvent,
+        {
+          id: Event.ID.create() as unknown as SessionEvent.DurableEvent["id"],
+          type: "session.next.step.ended",
+          durable,
+          data: {
+            sessionID,
+            timestamp: ts,
+            assistantMessageID: msgID,
+            finish: "end_turn",
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            snapshot: undefined,
+            files: undefined,
+          },
+        } as unknown as SessionEvent.DurableEvent,
+      ])
+    })
+
     /**
      * Run one complete LLM turn: load history → stream → tool settlement → continuation.
      */
@@ -1767,6 +1895,17 @@ export const layer = Layer.effect(
           }
         }
       }
+
+      // If the last assistant turn ended with tools but no prose, invoke a
+      // dedicated interpreter LLM call (empty tools) so the user always gets
+      // a natural-language summary.
+      yield* runInterpreterTurn(input.sessionID).pipe(
+        Effect.catchCause((cause) =>
+          Effect.sync(() => {
+            process.stderr.write(`[runner:interpreter] failed: ${Cause.pretty(cause)}\n`)
+          }),
+        ),
+      )
 
       // Auto-generate title after the first complete turn if still using the default
       void (yield* Effect.gen(function* () {

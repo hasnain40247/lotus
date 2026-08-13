@@ -65,17 +65,6 @@ function broadcastSSE(globalEvent: object): void {
   for (const send of sseClients) send(raw)
 }
 
-function toGlobalEvent(event: any, directory: string): object {
-  return {
-    directory,
-    payload: {
-      id: event.id ?? `evt_${Date.now()}`,
-      type: event.type,
-      properties: event.data ?? {},
-    },
-  }
-}
-
 // Per-session polling — starts when prompt is submitted, stops after idle.
 const activePollers = new Map<string, () => void>()
 
@@ -86,14 +75,28 @@ async function startEventPoller(
   sessionID: string,
   directory: string,
   loadEvents: (id: string) => Promise<any[]>,
+  getSession: (id: string) => Promise<any>,
 ): Promise<void> {
   if (activePollers.has(sessionID)) return
   let running = true
   activePollers.set(sessionID, () => { running = false })
 
-  let seenCount = 0
+  // Seed from existing events so we only process events from THIS turn.
+  // The prompt is fire-and-forget so the runner hasn't written any new events yet.
+  const existing = await loadEvents(sessionID).catch(() => [] as any[])
+  let seenCount = existing.length
   let idleMs = 0
   const IDLE_STOP_MS = 60_000  // stop polling 60 s after last event
+  const projector = createStreamingProjector(sessionID, directory)
+
+  // Track step starts vs ends so multi-step turns (tool call → follow-up text)
+  // are fully drained before the poller stops.
+  let stepStarts = 0
+  let stepEnds = 0
+  // Track the finish reason of the last step. If it was "tool-calls" or
+  // "tool_calls", the runner will spin up another turn — we must keep
+  // polling so its events reach the TUI.
+  let lastStepFinish: string | undefined
 
   while (running) {
     const events = await loadEvents(sessionID).catch((err) => {
@@ -106,34 +109,39 @@ async function startEventPoller(
     if (newEvents.length > 0) {
       idleMs = 0
       for (const ev of newEvents) {
-        broadcastSSE(toGlobalEvent(ev, directory))
-
-        // Emit high-level session.updated so the sidebar refreshes
-        if (ev.type === "session.next.step.ended") {
-          broadcastSSE({
-            directory,
-            payload: {
-              id: `upd_${Date.now()}`,
-              type: "session.updated",
-              properties: { sessionID },
-            },
-          })
+        projector.handle(ev)
+        if (ev.type === "session.next.step.started") stepStarts++
+        if (
+          ev.type === "session.next.step.ended" ||
+          ev.type === "session.next.step.failed"
+        ) {
+          stepEnds++
+          lastStepFinish = (ev.data as any)?.finish ?? lastStepFinish
         }
       }
 
-      // Check if the turn is done — stop after step.ended / step.failed
-      const done = newEvents.some(
-        (e) =>
-          e.type === "session.next.step.ended" ||
-          e.type === "session.next.step.failed",
-      )
+      // Only stop when every started step has ended AND the last step wasn't
+      // a tool-call step (which triggers a follow-up turn we haven't seen yet).
+      const isContinuing =
+        lastStepFinish === "tool-calls" || lastStepFinish === "tool_calls"
+      const done = stepStarts > 0 && stepEnds >= stepStarts && !isContinuing
       if (done) {
-        // Wait a bit for any trailing events, then stop
+        // Drain any trailing events, then stop
         await new Promise((r) => setTimeout(r, 500))
         const finalEvents = await loadEvents(sessionID).catch(() => [] as any[])
         for (const ev of finalEvents.slice(seenCount)) {
-          broadcastSSE(toGlobalEvent(ev, directory))
+          projector.handle(ev)
         }
+        // Refresh the session list entry
+        const sess = await getSession(sessionID).catch(() => null)
+        broadcastSSE({
+          directory,
+          payload: {
+            id: `upd_${Date.now()}`,
+            type: "session.updated",
+            properties: { sessionID, info: sess ? sessionToSDK(sess) : { id: sessionID } },
+          },
+        })
         running = false
         break
       }
@@ -580,92 +588,455 @@ function providerListResponse(connectedIntegrations: string[] = []): object {
 
 // ─── Event → message projection ───────────────────────────────────────────────
 
-function projectEventsToMessages(events: any[], sessionID: string): object[] {
-  const messages: object[] = []
-  let currentAssistant: any = null
-  const toMs = (dt: unknown): number => {
-    if (typeof dt === "number") return dt
-    if (dt && typeof (dt as any).epochMillis === "number") return (dt as any).epochMillis
-    if (typeof dt === "string") return new Date(dt).getTime()
-    return Date.now()
-  }
+const toMs = (dt: unknown): number => {
+  if (typeof dt === "number") return dt
+  if (dt && typeof (dt as any).epochMillis === "number") return (dt as any).epochMillis
+  if (typeof dt === "string") return new Date(dt).getTime()
+  return Date.now()
+}
+
+function textContent(content: any[]): string {
+  return (content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n")
+}
+
+// Returns MessageWithParts[] — the shape the SDK sync context expects.
+function projectEventsToMessages(events: any[], sessionID: string): { info: any; parts: any[] }[] {
+  const result: { info: any; parts: any[] }[] = []
+  let currentMsg: { info: any; parts: any[] } | null = null
+  const toolTimes = new Map<string, number>()
+  let parentID = ""
+
   for (const event of events) {
     const data = event.data ?? {}
+    const ts = toMs(data.timestamp)
+
     switch (event.type) {
       case "session.next.prompt.admitted":
       case "session.next.prompted": {
-        if (currentAssistant) { messages.push(currentAssistant); currentAssistant = null }
-        messages.push({
-          id: data.messageID ?? `msg_${Date.now()}`,
-          sessionID,
-          role: "user",
-          time: { created: toMs(data.timestamp), updated: toMs(data.timestamp) },
-          parts: [{ id: `part_${Date.now()}`, type: "text", text: data.prompt?.text ?? "" }],
+        if (currentMsg) { result.push(currentMsg); currentMsg = null }
+        const msgID: string = data.messageID ?? `msg_u_${Date.now()}`
+        parentID = msgID
+        result.push({
+          info: {
+            id: msgID,
+            sessionID,
+            role: "user",
+            time: { created: ts },
+            agent: "build",
+            model: { providerID: "unknown", modelID: "unknown" },
+          },
+          parts: [{
+            id: `txt_${msgID}`,
+            sessionID,
+            messageID: msgID,
+            type: "text",
+            text: data.prompt?.text ?? "",
+          }],
         })
         break
       }
+
       case "session.next.step.started": {
-        if (currentAssistant) { messages.push(currentAssistant) }
-        currentAssistant = {
-          id: data.assistantMessageID ?? `msg_${Date.now()}`,
-          sessionID,
-          role: "assistant",
-          time: { created: toMs(data.timestamp), updated: toMs(data.timestamp) },
+        if (currentMsg) { result.push(currentMsg) }
+        const msgID: string = data.assistantMessageID ?? `msg_a_${Date.now()}`
+        currentMsg = {
+          info: {
+            id: msgID,
+            sessionID,
+            role: "assistant",
+            time: { created: ts },
+            parentID,
+            modelID: data.model?.id ?? "unknown",
+            providerID: data.model?.providerID ?? "unknown",
+            mode: "one-shot",
+            agent: data.agent ?? "build",
+            path: { cwd: ".", root: "." },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          },
           parts: [],
         }
         break
       }
+
       case "session.next.text.ended": {
-        if (currentAssistant && data.text) {
-          currentAssistant.parts.push({ id: data.textID ?? `part_${Date.now()}`, type: "text", text: data.text })
-        }
-        break
-      }
-      case "session.next.tool.called": {
-        if (currentAssistant) {
-          currentAssistant.parts.push({
-            id: data.callID ?? `tool_${Date.now()}`,
-            type: "tool-invocation",
-            toolName: data.tool ?? "",
-            state: "call",
-            args: data.input ?? {},
-            result: null,
+        if (currentMsg && data.text) {
+          const msgID = currentMsg.info.id
+          currentMsg.parts.push({
+            id: data.textID ?? `txt_${Date.now()}`,
+            sessionID,
+            messageID: msgID,
+            type: "text",
+            text: data.text,
           })
         }
         break
       }
-      case "session.next.tool.success": {
-        if (currentAssistant) {
-          const part = currentAssistant.parts.find((p: any) => p.id === data.callID)
-          if (part) {
-            part.state = "result"
-            part.result = (data.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n")
+
+      case "session.next.reasoning.ended": {
+        if (currentMsg && data.text) {
+          const msgID = currentMsg.info.id
+          currentMsg.parts.push({
+            id: data.reasoningID ?? `rsn_${Date.now()}`,
+            sessionID,
+            messageID: msgID,
+            type: "reasoning",
+            text: data.text,
+            time: { start: ts, end: ts },
+          })
+        }
+        break
+      }
+
+      case "session.next.tool.input.started": {
+        toolTimes.set(data.callID, ts)
+        if (currentMsg) {
+          const msgID = currentMsg.info.id
+          const callID: string = data.callID
+          currentMsg.parts.push({
+            id: callID,
+            sessionID,
+            messageID: msgID,
+            type: "tool",
+            callID,
+            tool: data.name ?? "unknown",
+            state: { status: "running", input: {}, time: { start: ts } },
+          })
+        }
+        break
+      }
+
+      case "session.next.tool.called": {
+        if (currentMsg) {
+          const msgID = currentMsg.info.id
+          const callID: string = data.callID
+          const startMs = toolTimes.get(callID) ?? ts
+          toolTimes.set(callID, startMs)
+          const existing = currentMsg.parts.find((p: any) => p.id === callID)
+          const part = {
+            id: callID,
+            sessionID,
+            messageID: msgID,
+            type: "tool",
+            callID,
+            tool: data.tool ?? existing?.tool ?? "unknown",
+            state: { status: "running", input: data.input ?? {}, time: { start: startMs } },
+          }
+          if (existing) {
+            Object.assign(existing, part)
+          } else {
+            currentMsg.parts.push(part)
           }
         }
         break
       }
-      case "session.next.tool.failed": {
-        if (currentAssistant) {
-          const part = currentAssistant.parts.find((p: any) => p.id === data.callID)
-          if (part) { part.state = "error"; part.result = data.error?.message ?? "Tool failed" }
+
+      case "session.next.tool.progress": {
+        if (currentMsg) {
+          const existing = currentMsg.parts.find((p: any) => p.id === data.callID)
+          if (existing) {
+            existing.state = {
+              ...existing.state,
+              metadata: { output: textContent(data.content), ...data.structured },
+            }
+          }
         }
         break
       }
-      case "session.next.step.ended":
+
+      case "session.next.tool.success": {
+        if (currentMsg) {
+          const existing = currentMsg.parts.find((p: any) => p.id === data.callID)
+          if (existing) {
+            const startMs = toolTimes.get(data.callID) ?? ts
+            existing.state = {
+              status: "completed",
+              input: existing.state?.input ?? data.input ?? {},
+              output: textContent(data.content),
+              title: existing.tool ?? "unknown",
+              metadata: data.structured ?? {},
+              time: { start: startMs, end: ts },
+            }
+          }
+        }
+        break
+      }
+
+      case "session.next.tool.failed": {
+        if (currentMsg) {
+          const existing = currentMsg.parts.find((p: any) => p.id === data.callID)
+          if (existing) {
+            const startMs = toolTimes.get(data.callID) ?? ts
+            existing.state = {
+              status: "error",
+              input: existing.state?.input ?? {},
+              error: data.error?.message ?? "Tool failed",
+              time: { start: startMs, end: ts },
+            }
+          }
+        }
+        break
+      }
+
+      case "session.next.step.ended": {
+        if (currentMsg) {
+          currentMsg.info.time.completed = ts
+          currentMsg.info.finish = data.finish ?? "end-turn"
+          currentMsg.info.cost = data.cost ?? 0
+          if (data.tokens) currentMsg.info.tokens = data.tokens
+          result.push(currentMsg)
+          currentMsg = null
+          toolTimes.clear()
+        }
+        break
+      }
+
       case "session.next.step.failed": {
-        if (currentAssistant) {
-          if (event.type === "session.next.step.failed") currentAssistant.error = data.error?.message ?? "Step failed"
-          currentAssistant.time.updated = toMs(data.timestamp)
-          currentAssistant.tokens = data.tokens
-          messages.push(currentAssistant)
-          currentAssistant = null
+        if (currentMsg) {
+          currentMsg.info.time.completed = ts
+          currentMsg.info.error = { name: "UnknownError", data: { message: data.error?.message ?? "Step failed" } }
+          result.push(currentMsg)
+          currentMsg = null
+          toolTimes.clear()
         }
         break
       }
     }
   }
-  if (currentAssistant) messages.push(currentAssistant)
-  return messages
+  if (currentMsg) result.push(currentMsg)
+  return result
+}
+
+// ─── Streaming projector for real-time SSE events ─────────────────────────────
+
+function createStreamingProjector(sessionID: string, directory: string) {
+  let parentID = ""
+  let currentAssistantID = ""
+  let currentAssistantCreatedMs = 0
+  let providerID = "unknown"
+  let modelID = "unknown"
+  let agent = "build"
+  const toolTimes = new Map<string, number>()
+  const toolInputs = new Map<string, Record<string, unknown>>()
+  const toolNames = new Map<string, string>()
+
+  const bcast = (type: string, properties: Record<string, unknown>) =>
+    broadcastSSE({ directory, payload: { id: `evt_${Date.now()}`, type, properties } })
+
+  return {
+    handle(ev: any) {
+      const data = ev.data ?? {}
+      const ts = toMs(data.timestamp)
+
+      switch (ev.type) {
+        case "session.next.prompt.admitted":
+        case "session.next.prompted": {
+          const msgID: string = data.messageID ?? `msg_u_${Date.now()}`
+          parentID = msgID
+          const info = {
+            id: msgID, sessionID, role: "user",
+            time: { created: ts },
+            agent, model: { providerID, modelID },
+          }
+          bcast("message.updated", { info })
+          bcast("message.part.updated", {
+            part: { id: `txt_${msgID}`, sessionID, messageID: msgID, type: "text", text: data.prompt?.text ?? "" },
+          })
+          bcast("session.status", { sessionID, status: { type: "running" } })
+          break
+        }
+
+        case "session.next.step.started": {
+          currentAssistantID = data.assistantMessageID ?? `msg_a_${Date.now()}`
+          currentAssistantCreatedMs = ts
+          modelID = data.model?.id ?? modelID
+          providerID = data.model?.providerID ?? providerID
+          agent = data.agent ?? agent
+          bcast("message.updated", {
+            info: {
+              id: currentAssistantID, sessionID, role: "assistant",
+              time: { created: ts },
+              parentID, modelID, providerID,
+              mode: "one-shot", agent,
+              path: { cwd: ".", root: "." },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            },
+          })
+          break
+        }
+
+        case "session.next.text.ended": {
+          const msgID = data.assistantMessageID ?? currentAssistantID
+          bcast("message.part.updated", {
+            part: {
+              id: data.textID ?? `txt_${Date.now()}`, sessionID, messageID: msgID,
+              type: "text", text: data.text ?? "",
+              time: { start: ts, end: ts },
+            },
+          })
+          break
+        }
+
+        case "session.next.reasoning.ended": {
+          const msgID = data.assistantMessageID ?? currentAssistantID
+          bcast("message.part.updated", {
+            part: {
+              id: data.reasoningID ?? `rsn_${Date.now()}`, sessionID, messageID: msgID,
+              type: "reasoning", text: data.text ?? "",
+              time: { start: ts, end: ts },
+            },
+          })
+          break
+        }
+
+        case "session.next.tool.input.started": {
+          const callID: string = data.callID
+          toolTimes.set(callID, ts)
+          toolNames.set(callID, data.name ?? "unknown")
+          const msgID = data.assistantMessageID ?? currentAssistantID
+          bcast("message.part.updated", {
+            part: {
+              id: callID, sessionID, messageID: msgID,
+              type: "tool", callID,
+              tool: data.name ?? "unknown",
+              state: { status: "running", input: {}, time: { start: ts } },
+            },
+          })
+          break
+        }
+
+        case "session.next.tool.called": {
+          const callID: string = data.callID
+          const startMs = toolTimes.get(callID) ?? ts
+          toolTimes.set(callID, startMs)
+          toolInputs.set(callID, data.input ?? {})
+          toolNames.set(callID, data.tool ?? toolNames.get(callID) ?? "unknown")
+          const msgID = data.assistantMessageID ?? currentAssistantID
+          bcast("message.part.updated", {
+            part: {
+              id: callID, sessionID, messageID: msgID,
+              type: "tool", callID,
+              tool: toolNames.get(callID)!,
+              state: { status: "running", input: data.input ?? {}, time: { start: startMs } },
+            },
+          })
+          break
+        }
+
+        case "session.next.tool.progress": {
+          const callID: string = data.callID
+          const msgID = data.assistantMessageID ?? currentAssistantID
+          bcast("message.part.updated", {
+            part: {
+              id: callID, sessionID, messageID: msgID,
+              type: "tool", callID,
+              tool: toolNames.get(callID) ?? "unknown",
+              state: {
+                status: "running",
+                input: toolInputs.get(callID) ?? {},
+                title: toolNames.get(callID) ?? "unknown",
+                metadata: { output: textContent(data.content), ...data.structured },
+                time: { start: toolTimes.get(callID) ?? ts },
+              },
+            },
+          })
+          break
+        }
+
+        case "session.next.tool.success": {
+          const callID: string = data.callID
+          const startMs = toolTimes.get(callID) ?? ts
+          const msgID = data.assistantMessageID ?? currentAssistantID
+          bcast("message.part.updated", {
+            part: {
+              id: callID, sessionID, messageID: msgID,
+              type: "tool", callID,
+              tool: toolNames.get(callID) ?? "unknown",
+              state: {
+                status: "completed",
+                input: toolInputs.get(callID) ?? {},
+                output: textContent(data.content),
+                title: toolNames.get(callID) ?? "unknown",
+                metadata: data.structured ?? {},
+                time: { start: startMs, end: ts },
+              },
+            },
+          })
+          break
+        }
+
+        case "session.next.tool.failed": {
+          const callID: string = data.callID
+          const startMs = toolTimes.get(callID) ?? ts
+          const msgID = data.assistantMessageID ?? currentAssistantID
+          bcast("message.part.updated", {
+            part: {
+              id: callID, sessionID, messageID: msgID,
+              type: "tool", callID,
+              tool: toolNames.get(callID) ?? "unknown",
+              state: {
+                status: "error",
+                input: toolInputs.get(callID) ?? {},
+                error: data.error?.message ?? "Tool failed",
+                time: { start: startMs, end: ts },
+              },
+            },
+          })
+          break
+        }
+
+        case "session.next.step.ended": {
+          const msgID = data.assistantMessageID ?? currentAssistantID
+          bcast("message.updated", {
+            info: {
+              id: msgID, sessionID, role: "assistant",
+              time: { created: currentAssistantCreatedMs || ts, completed: ts },
+              parentID, modelID, providerID,
+              mode: "one-shot", agent,
+              path: { cwd: ".", root: "." },
+              finish: data.finish ?? "end-turn",
+              cost: data.cost ?? 0,
+              tokens: data.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            },
+          })
+          // Only mark session idle when the LLM is truly done. If the step
+          // ended because the model wants to call more tools, the runner will
+          // spin up another turn — keep the spinner running through it.
+          const finish = data.finish
+          const willContinue = finish === "tool-calls" || finish === "tool_calls"
+          if (!willContinue) {
+            bcast("session.status", { sessionID, status: { type: "idle" } })
+          }
+          toolTimes.clear()
+          toolInputs.clear()
+          toolNames.clear()
+          break
+        }
+
+        case "session.next.step.failed": {
+          const msgID = data.assistantMessageID ?? currentAssistantID
+          bcast("message.updated", {
+            info: {
+              id: msgID, sessionID, role: "assistant",
+              time: { created: currentAssistantCreatedMs || ts, completed: ts },
+              parentID, modelID, providerID,
+              mode: "one-shot", agent,
+              path: { cwd: ".", root: "." },
+              error: { name: "UnknownError", data: { message: data.error?.message ?? "Step failed" } },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            },
+          })
+          bcast("session.status", { sessionID, status: { type: "idle" } })
+          toolTimes.clear()
+          toolInputs.clear()
+          toolNames.clear()
+          break
+        }
+      }
+    },
+  }
 }
 
 // ─── Git helpers ──────────────────────────────────────────────────────────────
@@ -817,15 +1188,25 @@ function handleRequest(
       const agents = await services.listAgents().catch(() => [])
       const sdkAgents = agents
         .filter((a) => !a.hidden)
-        .map((a) => ({
-          name: a.name ?? a.id,
-          description: a.description,
-          mode: a.mode ?? "primary",
-          native: true,
-          hidden: false,
-          permission: {},
-          options: {},
-        }))
+        .map((a) => {
+          const modelStr = a.model
+          let model: { providerID: string; modelID: string } | undefined = undefined
+          if (modelStr && typeof modelStr === "string" && modelStr.includes("/")) {
+            const idx = modelStr.indexOf("/")
+            model = { providerID: modelStr.slice(0, idx), modelID: modelStr.slice(idx + 1) }
+          }
+          return {
+            name: a.name ?? a.id,
+            description: a.description ?? "",
+            mode: a.mode ?? "primary",
+            native: true,
+            hidden: false,
+            permission: a.permissions ? { allow: a.permissions } : {},
+            options: {},
+            ...(model ? { model } : {}),
+            ...(a.color ? { color: a.color } : {}),
+          }
+        })
       return json(sdkAgents)
     })()
   }
@@ -863,12 +1244,12 @@ function handleRequest(
     return (async () => {
       const projectID = encodeURIComponent(directory)
       const sessions = await services.listSessions(projectID).catch(() => [] as any[])
-      const status: Record<string, string> = {}
+      const status: Record<string, { type: string }> = {}
       for (const s of sessions) {
         const events = await services.loadEvents(s.id).catch(() => [] as any[])
         const last = events.at(-1)?.type ?? ""
-        status[s.id] = (last === "session.next.step.started" || last === "session.next.text.started")
-          ? "running" : "idle"
+        const running = last === "session.next.step.started" || last === "session.next.text.started"
+        status[s.id] = { type: running ? "running" : "idle" }
       }
       return json(status)
     })()
@@ -925,7 +1306,11 @@ function handleRequest(
       try {
         body = await req.json()
       } catch {}
-      const text = body.text ?? body.parts?.[0]?.text ?? ""
+      const parts = body.parts ?? []
+      const textParts = parts
+        .filter((p: any) => p.type === "text")
+        .map((p: any) => p.text as string)
+      const text: string = body.text ?? (textParts.length > 0 ? textParts.join("\n") : "")
 
       // Fire-and-forget — the runner runs in background
       services
@@ -934,7 +1319,7 @@ function handleRequest(
         .catch((err) => console.error("[tui-server] prompt error:", err))
 
       // Start polling for events produced by this session
-      startEventPoller(sessionID, directory, services.loadEvents).catch(
+      startEventPoller(sessionID, directory, services.loadEvents, services.getSession).catch(
         (err) => console.error("[tui-server] poller error:", err),
       )
       console.log(`[tui-server] poller started for ${sessionID}`)
@@ -1014,13 +1399,15 @@ function handleRequest(
   if (sessionMatch && method === "DELETE") {
     const sessionID = sessionMatch[1]!
     return (async () => {
+      const sess = await services.getSession(sessionID).catch(() => null)
       await services.archiveSession(sessionID).catch(() => {})
+      const info = sess ? sessionToSDK(sess) : { id: sessionID }
       broadcastSSE({
         directory,
         payload: {
           id: `del_${Date.now()}`,
           type: "session.deleted",
-          properties: { sessionID },
+          properties: { sessionID, info },
         },
       })
       return json({ id: sessionID, deleted: true })
@@ -1073,12 +1460,13 @@ function handleRequest(
         console.error("[tui-server] revert error:", e)
         throw e
       })
+      const sess = await services.getSession(sessionID).catch(() => null)
       broadcastSSE({
         directory,
         payload: {
           id: `rev_${Date.now()}`,
           type: "session.updated",
-          properties: { sessionID },
+          properties: { sessionID, info: sess ? sessionToSDK(sess) : { id: sessionID } },
         },
       })
       return json({ sessionID, reverted: true })
@@ -1352,6 +1740,24 @@ function handleRequest(
   // ── V2 permission endpoints (pending requests — stub empty) ───────────────
   const v2PermissionListMatch = pathname.match(/^\/v2\/session\/([^/]+)\/permission$/)
   if (v2PermissionListMatch && method === "GET") return json({ data: [] })
+
+  // ── Experimental endpoints (stub responses) ────────────────────────────────
+  if (pathname === "/experimental/capabilities" && method === "GET")
+    return json({ backgroundSubagents: false })
+  if (pathname === "/experimental/console" && method === "GET")
+    return json({ consoleManagedProviders: [], switchableOrgCount: 0 })
+  if (pathname === "/experimental/resource" && method === "GET") return json({})
+  if (pathname === "/experimental/workspace" && method === "GET") return json([])
+  if (pathname === "/experimental/worktree" && method === "GET") return json([])
+
+  // ── Session sub-resource stubs ─────────────────────────────────────────────
+  if (pathname.startsWith("/session/") && pathname.endsWith("/shell") && method === "POST") return json({})
+  if (pathname.startsWith("/session/") && pathname.endsWith("/command") && method === "POST") return json({})
+  if (pathname.startsWith("/session/") && pathname.endsWith("/summarize") && method === "POST") return json({})
+
+  // ── Sync endpoints (stub) ──────────────────────────────────────────────────
+  if (pathname === "/sync/list" && method === "GET") return json([])
+  if (pathname === "/sync/start" && method === "POST") return json({})
 
   // ── Default ───────────────────────────────────────────────────────────────
   return json({ error: `Not implemented: ${method} ${pathname}` }, 404)

@@ -90,7 +90,7 @@ const multiProviderModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConf
       const modelId =
         session.model?.id ??
         (session.model as any)?.modelID ??
-        "deepseek-chat"
+        "deepseek-v4-pro"
 
       const providerID =
         (session.model as any)?.providerID ??

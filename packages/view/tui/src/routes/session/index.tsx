@@ -78,7 +78,7 @@ import { getScrollAcceleration } from "../../util/scroll"
 import { collapseToolOutput } from "../../util/collapse-tool-output"
 import { DialogRetryAction } from "../../component/dialog-retry-action"
 import { getRevertDiffFiles } from "../../util/revert-diff"
-import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useOpencodeKeymap } from "../../keymap"
+import { LOTUS_BASE_MODE, useBindings, useCommandShortcut, useLotusCodeKeymap } from "../../keymap"
 import { usePathFormatter } from "../../context/path-format"
 import { LocationProvider } from "../../context/location"
 import { LogoBanner } from "../../component/logo"
@@ -90,7 +90,7 @@ const GO_UPSELL_FREE_TIER_DONT_SHOW = "go_upsell_dont_show"
 const GO_UPSELL_ACCOUNT_RATE_LIMIT_LAST_SEEN_AT = "go_upsell_account_rate_limit_last_seen_at"
 const GO_UPSELL_ACCOUNT_RATE_LIMIT_DONT_SHOW = "go_upsell_account_rate_limit_dont_show"
 const GO_UPSELL_WINDOW = 86_400_000 // 24 hrs
-const GO_UPSELL_PROVIDERS = new Set(["opencode", "opencode-go"])
+const GO_UPSELL_PROVIDERS = new Set(["lotus-code", "lotus-code-go"])
 
 export const alwaysSeparate = new WeakSet<BoxRenderable>()
 
@@ -342,7 +342,7 @@ export function Session() {
     seeded = true
     r.set(route.prompt)
   }
-  const keymap = useOpencodeKeymap()
+  const keymap = useLotusCodeKeymap()
   const dialog = useDialog()
   const renderer = useRenderer()
 
@@ -1104,12 +1104,12 @@ export function Session() {
   }))
 
   useBindings(() => ({
-    mode: OPENCODE_BASE_MODE,
+    mode: LOTUS_BASE_MODE,
     bindings: tuiConfig.keybinds.gather("session", sessionBindingCommands),
   }))
 
   useBindings(() => ({
-    mode: OPENCODE_BASE_MODE,
+    mode: LOTUS_BASE_MODE,
     enabled: foregroundTasks().length > 0,
     priority: 1,
     bindings: tuiConfig.keybinds.get("session.background"),
@@ -1983,7 +1983,13 @@ function BlockTool(props: {
   const { theme } = useTheme()
   const renderer = useRenderer()
   const [hover, setHover] = createSignal(false)
+  const [collapsed, setCollapsed] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
+  const chevron = createMemo(() => (collapsed() ? "▶" : "▼"))
+  const displayTitle = createMemo(() => {
+    const raw = props.title ?? "Output"
+    return `${chevron()} ${raw.replace(/^# /, "")}`
+  })
   return (
     <box
       ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
@@ -1996,30 +2002,39 @@ function BlockTool(props: {
       backgroundColor={hover() ? theme.backgroundMenu : theme.backgroundPanel}
       customBorderChars={SplitBorder.customBorderChars}
       borderColor={theme.background}
-      onMouseOver={() => props.onClick && setHover(true)}
+      onMouseOver={() => setHover(true)}
       onMouseOut={() => setHover(false)}
-      onMouseUp={() => {
-        if (renderer.getSelection()?.getSelectedText()) return
-        props.onClick?.()
-      }}
     >
-      <Show when={props.title}>
-        {(title) => (
-          <Show
-            when={props.spinner}
-            fallback={
-              <text paddingLeft={3} fg={theme.textMuted}>
-                {title()}
-              </text>
-            }
-          >
-            <Spinner color={theme.textMuted}>{title().replace(/^# /, "")}</Spinner>
-          </Show>
-        )}
-      </Show>
-      {props.children}
-      <Show when={error()}>
-        <text fg={theme.error}>{error()}</text>
+      <box
+        onMouseUp={() => {
+          if (renderer.getSelection()?.getSelectedText()) return
+          setCollapsed((prev) => !prev)
+        }}
+      >
+        <Show
+          when={props.spinner}
+          fallback={
+            <text paddingLeft={3} fg={theme.textMuted}>
+              {displayTitle()}
+            </text>
+          }
+        >
+          <Spinner color={theme.textMuted}>{displayTitle().replace(/^[▶▼] /, "")}</Spinner>
+        </Show>
+      </box>
+      <Show when={!collapsed()}>
+        <box
+          gap={1}
+          onMouseUp={() => {
+            if (renderer.getSelection()?.getSelectedText()) return
+            props.onClick?.()
+          }}
+        >
+          {props.children}
+        </box>
+        <Show when={error()}>
+          <text fg={theme.error}>{error()}</text>
+        </Show>
       </Show>
     </box>
   )

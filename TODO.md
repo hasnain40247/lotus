@@ -32,8 +32,8 @@ All 19 tool files in `controller/tool/src/tools/` are fully implemented and regi
 - [x] `ReadFilesystemTool` — directory listing helpers (utility module used by ReadTool, not registered separately)
 - [x] `LspTool` (`lsp`) — registered; stub reports "no LSP server available" until a real LspService is wired
 - [x] `McpWebsearchTool` (`mcp_websearch`) — registered; stub errors until a real McpWebsearchService is wired
-- [x] `AgentTool` (`agent`) — registered; stub errors until a real AgentRunnerService is wired
-- [x] `TaskTool` (`task`) — registered; stub errors until a real TaskRunnerService is wired
+- [x] `AgentTool` (`agent`) — real implementation: `spawnSubagent` in `bootstrap.ts` creates a child session inheriting the parent's project/location/model with `agent: subagent_type`, admits the prompt, drives `SessionRunner.run` to completion, and returns the last assistant text. `state: "error"` only when the child produced no usable text
+- [x] `TaskTool` (`task`) — same implementation, with `background: true` running the child via `Effect.forkDetach` and returning immediately
 
 ---
 
@@ -65,6 +65,8 @@ The core REST endpoints are now wired. Remaining gaps:
 - [x] `POST /session/{id}/revert/stage` → in-memory staging
 - [x] `POST /session/{id}/revert/commit` → `SessionController.revert()`
 - [x] `POST /session/{id}/revert/clear` → clears staged revert
+- [x] Subagent transcript nesting — parent poller detects `session.next.subagent.spawned` and auto-starts a child event poller so the child's turn events reach the TUI via SSE. TUI routes non-current-session events into a per-`toolCallID` transcript rendered nested under the spawning tool row, collapsed by default
+- [x] Agent switcher in TUI — `Tab` cycles primary agents (`build` ↔ `plan`); footer chip + `❯` prompt marker + per-message badge show the active agent with distinct palette colors (build/plan/explore/general); mid-session cycling PATCHes `session.agent` so subsequent turns use the new system prompt + permission ruleset
 - [ ] `POST /session/{id}/unrevert` → genuinely not implementable: `revert` destructively truncates the event log with no backup; would need a revert-stack or snapshot mechanism
 - [ ] **Streaming deltas** — `session.next.text.delta` and `session.next.tool.input.delta` are live-only in `SessionRunner` (never persisted to Firestore), so the SSE poller never sees them. Need a direct in-process pub/sub channel from `SessionRunner` → `broadcastSSE` to render streaming text and tool input in real time.
 - [x] `session.next.compaction.started/ended` → already emitted by `runCompactionImpl` in `SessionRunner` around the summary LLM call
@@ -143,3 +145,6 @@ Currently no Firestore security rules are defined. Anyone with the GCP project I
 - [ ] `SessionImporter` — verify import from `gs://` URI fully reconstructs event log
 - [ ] `SessionExporter` — verify markdown and JSON export formats match what `session list` shows
 - [ ] `DbCommand` collection counts — current `db path` only prints config; add a `db counts` subcommand showing live Firestore document counts per collection
+- [ ] Review session runner error handling
+- [ ] Add tests for tool call parts
+- [ ] Update README with deployment instructions

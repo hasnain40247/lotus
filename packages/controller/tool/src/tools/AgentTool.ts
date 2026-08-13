@@ -53,6 +53,7 @@ export interface AgentRunInput {
   readonly subagentType: string
   readonly taskId?: string
   readonly parentSessionID: string
+  readonly toolCallID: string
 }
 
 export interface AgentRunResult {
@@ -104,6 +105,7 @@ export const makeAgentTool = (runner: IAgentRunnerService): AnyTool =>
             subagentType: input.subagent_type,
             taskId: input.task_id,
             parentSessionID: context.sessionID,
+            toolCallID: context.toolCallID,
           })
           .pipe(
             Effect.mapError(

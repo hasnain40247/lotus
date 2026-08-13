@@ -11,7 +11,9 @@
  *   into a layer before merging it with others.
  */
 
-import { Effect, Layer } from "effect"
+import { DateTime, Effect, Layer } from "effect"
+import { Event, SessionMessage } from "@gco/schema"
+import { EventRepository } from "@gco/model-domain"
 
 // GCP infrastructure
 import {
@@ -39,8 +41,12 @@ import {
   sessionRunnerLayer,
   sessionExporterLayer,
   sessionImporterLayer,
+  SessionController,
+  SessionRunner,
   ModelResolver,
   type ModelResolverInterface,
+  type SessionControllerInterface,
+  type SessionRunnerInterface,
 } from "@gco/controller-session"
 import { agentLayer } from "@gco/controller-agent"
 import { mcpLayer, mcpAuthLayer } from "@gco/controller-mcp"
@@ -72,6 +78,7 @@ import { RequestExecutor } from "@gco/llm/route"
 import * as VertexProvider from "@gco/llm/providers/vertex"
 import type { Model } from "@gco/llm"
 import type { Session } from "@gco/schema"
+import type { IEventRepository } from "@gco/model-domain"
 
 // ---------------------------------------------------------------------------
 // ModelResolver implementations
@@ -170,6 +177,196 @@ const modelReposLayer = Layer.mergeAll(
   SecretsModelLayer,
 ).pipe(Layer.provide(Layer.merge(gcpServicesLayer, GcpConfig.layer)))
 
+// ---------------------------------------------------------------------------
+// Subagent runtime — resolves the cycle between builtinToolsLayer (which
+// contains task/agent tools) and controllersLayer (SessionController /
+// SessionRunner, which the tools call to spawn child sessions).
+//
+// The tools capture this module-level ref at build time; a wiring layer that
+// runs AFTER the controllers layer populates it. Until populated, the tools
+// return a clear error rather than a stubbed one.
+// ---------------------------------------------------------------------------
+
+type SubagentRuntime = {
+  sessions: SessionControllerInterface
+  runner: SessionRunnerInterface
+  events: IEventRepository
+}
+
+const subagentRuntime: { current: SubagentRuntime | null } = { current: null }
+
+/** Read the last assistant text.ended event and return its accumulated text. */
+function extractLastAssistantText(events: ReadonlyArray<{ type: string; data: unknown }>): string {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i] as { type: string; data: { text?: string } }
+    if (ev.type === "session.next.text.ended") return ev.data?.text ?? ""
+  }
+  return ""
+}
+
+/**
+ * Shared spawn helper for both task (fg+bg) and agent (fg-only) tools.
+ * Creates a child session (or resumes taskId), admits the prompt, drives the
+ * runner to completion, then returns the last assistant text.
+ *
+ * Also writes `session.next.subagent.spawned` and `.ended` events to the PARENT
+ * session so the TUI can nest the child's transcript under the spawning tool row.
+ */
+const spawnSubagent = (input: {
+  prompt: string
+  subagentType: string
+  parentSessionID: string
+  toolCallID?: string
+  taskId?: string
+  title?: string
+  background?: boolean
+}) =>
+  Effect.gen(function* () {
+    const rt = subagentRuntime.current
+    if (!rt) return yield* Effect.fail(new Error("Subagent runtime not initialized"))
+
+    // Resolve or create the child session
+    let childSid: Session.ID
+    if (input.taskId) {
+      childSid = input.taskId as Session.ID
+      yield* rt.sessions
+        .get(childSid)
+        .pipe(Effect.mapError(() => new Error(`Task session not found: ${input.taskId}`)))
+    } else {
+      const parent = yield* rt.sessions
+        .get(input.parentSessionID as Session.ID)
+        .pipe(Effect.mapError(() => new Error(`Parent session not found: ${input.parentSessionID}`)))
+      const child = yield* rt.sessions.create({
+        projectID: parent.projectID,
+        title: input.title ?? `Task: ${input.subagentType}`,
+        agent: input.subagentType,
+        model: parent.model
+          ? {
+              id: parent.model.id,
+              providerID: parent.model.providerID,
+              variant: parent.model.variant,
+            }
+          : undefined,
+        location: {
+          directory: parent.location.directory,
+          workspaceID: parent.location.workspaceID,
+        },
+      })
+      childSid = child.id
+    }
+
+    // Announce the spawn to the PARENT stream so the TUI can associate this
+    // child session with the spawning tool call and start streaming its events.
+    const spawnTs = yield* DateTime.now
+    yield* rt.events
+      .append(input.parentSessionID as Session.ID, [
+        {
+          id: Event.ID.create(),
+          type: "session.next.subagent.spawned",
+          durable: undefined,
+          data: {
+            sessionID: input.parentSessionID,
+            timestamp: spawnTs,
+            childSessionID: childSid,
+            subagentType: input.subagentType,
+            toolCallID: input.toolCallID,
+            description: input.title,
+          },
+        } as any,
+      ])
+      .pipe(
+        Effect.catchCause((cause) =>
+          Effect.sync(() => {
+            process.stderr.write(
+              `[subagent] failed to append spawned event for ${input.parentSessionID}: ${cause}\n`,
+            )
+          }),
+        ),
+      )
+
+    // Admit the prompt directly (bypassing SessionController.prompt so we can
+    // wait for the runner synchronously below instead of fork-and-forget).
+    const messageID = SessionMessage.ID.create()
+    const timestamp = yield* DateTime.now
+    yield* rt.events.append(childSid, [
+      {
+        id: Event.ID.create(),
+        type: "session.next.prompt.admitted",
+        durable: undefined,
+        data: {
+          sessionID: childSid,
+          timestamp,
+          messageID,
+          prompt: { text: input.prompt, files: [], agents: [] },
+          delivery: "steer",
+        },
+      } as any,
+    ])
+
+    // Write a subagent.ended event to the parent stream so the TUI knows to
+    // finalize the nested transcript. Fires for both fg and bg completion.
+    const emitEnded = (state: "completed" | "error" | "running") =>
+      Effect.gen(function* () {
+        const ts = yield* DateTime.now
+        yield* rt.events
+          .append(input.parentSessionID as Session.ID, [
+            {
+              id: Event.ID.create(),
+              type: "session.next.subagent.ended",
+              durable: undefined,
+              data: {
+                sessionID: input.parentSessionID,
+                timestamp: ts,
+                childSessionID: childSid,
+                toolCallID: input.toolCallID,
+                state,
+              },
+            } as any,
+          ])
+          .pipe(Effect.catchCause(() => Effect.void))
+      })
+
+    if (input.background) {
+      yield* rt.runner
+        .run({ sessionID: childSid, force: false })
+        .pipe(Effect.catchCause(() => Effect.void), Effect.forkDetach)
+      // Background tasks don't get an ended event now — the child poller will
+      // detect completion via the child's own step.ended stream.
+      return {
+        sessionID: childSid as string,
+        state: "running" as const,
+        text: "",
+      }
+    }
+
+    // Track any runner fault for diagnostic logging. Note: a fault does NOT
+    // automatically mean the subagent's work was lost — the model may have
+    // produced its final text before an unrelated tail-effect faulted (e.g.
+    // background cleanup, cost aggregation). Success is judged by whether
+    // usable text landed in the event stream.
+    let runFault: string | null = null
+    yield* rt.runner.run({ sessionID: childSid, force: false }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.sync(() => {
+          runFault = String(cause)
+          process.stderr.write(`[subagent] child run faulted for ${childSid}: ${cause}\n`)
+        }),
+      ),
+    )
+    const events = yield* rt.events.load(childSid).pipe(Effect.catchCause(() => Effect.succeed([] as never[])))
+    const text = extractLastAssistantText(events as Array<{ type: string; data: unknown }>)
+
+    // Only report error when there's no usable output. Any text at all means
+    // the subagent did its job and the parent LLM should treat it as success.
+    const state: "completed" | "error" = text.trim() ? "completed" : "error"
+    yield* emitEnded(state)
+    return {
+      sessionID: childSid as string,
+      state,
+      text: state === "error" ? (runFault ?? "Subagent produced no output") : text,
+    }
+  })
+
 // Provides ToolRegistryService AND registers all built-in tools on startup.
 // Service-dependent tools use inline stubs — real implementations replace these
 // as the corresponding subsystems are built out.
@@ -188,11 +385,37 @@ const builtinToolsLayer = Layer.merge(
       }
 
       const agentSvc: AgentTool.IAgentRunnerService = {
-        run: () => Effect.fail(new Error("Sub-agent spawning not yet available")),
+        run: (input) =>
+          Effect.gen(function* () {
+            const result = yield* spawnSubagent({
+              prompt: input.prompt,
+              subagentType: input.subagentType,
+              parentSessionID: input.parentSessionID,
+              toolCallID: input.toolCallID,
+              taskId: input.taskId,
+              title: input.description,
+            })
+            return {
+              sessionID: result.sessionID,
+              output: result.text,
+            }
+          }),
       }
 
       const taskSvc: TaskTool.ITaskRunnerService = {
-        run: () => Effect.fail(new Error("Task execution not yet available")),
+        run: (input) =>
+          Effect.gen(function* () {
+            const result = yield* spawnSubagent({
+              prompt: input.prompt,
+              subagentType: input.subagentType,
+              parentSessionID: input.parentSessionID,
+              toolCallID: input.toolCallID,
+              taskId: input.taskId,
+              title: input.description,
+              background: input.background,
+            })
+            return result
+          }),
       }
 
       const skillSvc: SkillTool.ISkillService = {
@@ -274,10 +497,23 @@ const controllersLayer = Layer.mergeAll(
   mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
 ).pipe(Layer.provide(Layer.merge(infraLayer, sessionRunnerWithDeps)))
 
+// Populate subagentRuntime after controllers are ready. Depends on
+// SessionController + SessionRunner (from controllersLayer/sessionRunnerWithDeps)
+// and EventRepository (from infraLayer via modelReposLayer).
+const subagentWiringLayer = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const sessions = yield* SessionController
+    const runner = yield* SessionRunner
+    const events = yield* EventRepository
+    subagentRuntime.current = { sessions, runner, events }
+  }),
+).pipe(Layer.provide(Layer.merge(controllersLayer, Layer.merge(infraLayer, sessionRunnerWithDeps))))
+
 export const ProductionLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
   infraLayer,
   sessionRunnerWithDeps,
   controllersLayer,
+  subagentWiringLayer,
 ) as unknown as Layer.Layer<any, any, never>
 
 // ---------------------------------------------------------------------------
@@ -326,8 +562,18 @@ const testControllersLayer = Layer.mergeAll(
   mcpLayer(process.cwd()).pipe(Layer.provide(mcpAuthLayer)),
 ).pipe(Layer.provide(Layer.merge(testInfraLayer, testSessionRunnerWithDeps)))
 
+const testSubagentWiringLayer = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const sessions = yield* SessionController
+    const runner = yield* SessionRunner
+    const events = yield* EventRepository
+    subagentRuntime.current = { sessions, runner, events }
+  }),
+).pipe(Layer.provide(Layer.merge(testControllersLayer, Layer.merge(testInfraLayer, testSessionRunnerWithDeps))))
+
 export const TestLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
   testInfraLayer,
   testSessionRunnerWithDeps,
   testControllersLayer,
+  testSubagentWiringLayer,
 ) as unknown as Layer.Layer<any, any, never>

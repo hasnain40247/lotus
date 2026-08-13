@@ -11,6 +11,7 @@ import type { Server } from "bun"
 import { execSync } from "node:child_process"
 import * as os from "node:os"
 import * as path from "node:path"
+import { SlashCommand } from "@gco/schema"
 
 // ─── Service interface ────────────────────────────────────────────────────────
 
@@ -34,7 +35,7 @@ export interface TuiServerServices {
   readonly loadEvents: (sessionID: string) => Promise<any[]>
   readonly archiveSession: (sessionID: string) => Promise<void>
   readonly abortSession: (sessionID: string) => Promise<void>
-  readonly updateSession: (sessionID: string, patch: { title?: string }) => Promise<any>
+  readonly updateSession: (sessionID: string, patch: { title?: string; agent?: string }) => Promise<any>
   readonly forkSession: (sessionID: string, opts?: { messageID?: string; partID?: string }) => Promise<any>
   readonly revertSession: (sessionID: string, messageID: string) => Promise<void>
   readonly listAgents: () => Promise<any[]>
@@ -117,6 +118,18 @@ async function startEventPoller(
         ) {
           stepEnds++
           lastStepFinish = (ev.data as any)?.finish ?? lastStepFinish
+        }
+        // When the parent spawns a subagent, kick off a poller for the child
+        // session so its events also flow through the SSE stream. The TUI
+        // uses the payload broadcast by the projector to nest the child's
+        // transcript under the spawning tool call.
+        if (ev.type === "session.next.subagent.spawned") {
+          const childSid = (ev.data as any)?.childSessionID as string | undefined
+          if (childSid) {
+            void startEventPoller(childSid, directory, loadEvents, getSession).catch(
+              (e) => console.error("[tui-server] child poller failed:", e),
+            )
+          }
         }
       }
 
@@ -417,7 +430,10 @@ function buildOpenApiSpec(port: number): object {
         get: { tags: ["Agents & Commands"], summary: "List configured agents", responses: { "200": { description: "Array of agent objects" } } },
       },
       "/command": {
-        get: { tags: ["Agents & Commands"], summary: "List available CLI commands with descriptions", responses: { "200": { description: "Array of { name, description }" } } },
+        get: { tags: ["Agents & Commands"], summary: "List CLI shell subcommands (yargs verbs)", responses: { "200": { description: "Array of { name, description }" } } },
+      },
+      "/slash-command": {
+        get: { tags: ["Agents & Commands"], summary: "List TUI slash-palette actions", responses: { "200": { description: "Array of { name, description, aliases? }" } } },
       },
       "/lsp": {
         get: { tags: ["Agents & Commands"], summary: "LSP status (not wired — returns { running: false })", responses: { "200": { description: "LSP state" } } },
@@ -1034,6 +1050,31 @@ function createStreamingProjector(sessionID: string, directory: string) {
           toolNames.clear()
           break
         }
+
+        // Announce subagent lifecycle to the TUI so it can nest the child's
+        // transcript under the spawning tool call. Fields mirror the internal
+        // event data (childSessionID, subagentType, toolCallID, ...).
+        case "session.next.subagent.spawned": {
+          bcast("session.subagent.spawned", {
+            parentSessionID: sessionID,
+            childSessionID: data.childSessionID,
+            subagentType: data.subagentType,
+            toolCallID: data.toolCallID,
+            description: data.description,
+            time: { created: ts },
+          })
+          break
+        }
+        case "session.next.subagent.ended": {
+          bcast("session.subagent.ended", {
+            parentSessionID: sessionID,
+            childSessionID: data.childSessionID,
+            toolCallID: data.toolCallID,
+            state: data.state,
+            time: { completed: ts },
+          })
+          break
+        }
       }
     },
   }
@@ -1374,13 +1415,16 @@ function handleRequest(
     })()
   }
 
-  // ── Sessions — PATCH (update title) ──────────────────────────────────────
+  // ── Sessions — PATCH (update title / agent) ──────────────────────────────
   if (sessionMatch && method === "PATCH") {
     const sessionID = sessionMatch[1]!
     return (async () => {
       let body: any = {}
       try { body = await req.json() } catch {}
-      const updated = await services.updateSession(sessionID, { title: body.title }).catch(() => null)
+      const patch: { title?: string; agent?: string } = {}
+      if (typeof body.title === "string") patch.title = body.title
+      if (typeof body.agent === "string") patch.agent = body.agent
+      const updated = await services.updateSession(sessionID, patch).catch(() => null)
       if (!updated) return json({ error: "Not found" }, 404)
       const sdkSession = sessionToSDK(updated)
       broadcastSSE({
@@ -1507,7 +1551,9 @@ function handleRequest(
   if (pathname === "/permission" && method === "GET") return json([])
   if (pathname === "/question" && method === "GET") return json([])
 
-  // ── Commands — sourced from yargs command definitions ─────────────────────
+  // ── CLI verbs — shell subcommands exposed by the `lotus-code` binary.
+  // These are yargs commands you run from a terminal, not TUI palette actions.
+  // For TUI slash-palette actions, see GET /slash-command.
   if (pathname === "/command" && method === "GET") {
     return json([
       { name: "run [message..]",          description: "Run lotus-code with a message (non-interactive)" },
@@ -1525,6 +1571,13 @@ function handleRequest(
       { name: "upgrade [target]",         description: "Upgrade lotus-code to the latest or a specific version" },
       { name: "uninstall",                description: "Uninstall lotus-code and remove all related files" },
     ])
+  }
+
+  // ── TUI slash-palette actions — invoked from the "/" palette inside the TUI.
+  // Sourced from the shared registry in @gco/schema so view and controller
+  // agree on one canonical list.
+  if (pathname === "/slash-command" && method === "GET") {
+    return json(SlashCommand.registry)
   }
 
   // ── LSP / Formatter — not wired up; return accurate empty state ───────────

@@ -431,6 +431,33 @@ export namespace Compaction {
   export type Ended = typeof Ended.Type
 }
 
+export namespace Subagent {
+  export const Spawned = Event.define({
+    type: "session.next.subagent.spawned",
+    ...options,
+    schema: {
+      ...Base,
+      childSessionID: SessionID,
+      subagentType: Schema.String,
+      toolCallID: Schema.String.pipe(optional),
+      description: Schema.String.pipe(optional),
+    },
+  })
+  export type Spawned = typeof Spawned.Type
+
+  export const Ended = Event.define({
+    type: "session.next.subagent.ended",
+    ...options,
+    schema: {
+      ...Base,
+      childSessionID: SessionID,
+      toolCallID: Schema.String.pipe(optional),
+      state: Schema.Literals(["completed", "error", "running"]),
+    },
+  })
+  export type Ended = typeof Ended.Type
+}
+
 export namespace RevertEvent {
   export const Staged = Event.define({
     type: "session.next.revert.staged",
@@ -474,6 +501,8 @@ export const DurableDefinitions = Event.inventory(
   RevertEvent.Staged,
   RevertEvent.Cleared,
   RevertEvent.Committed,
+  Subagent.Spawned,
+  Subagent.Ended,
 )
 
 export const Definitions = Event.inventory(
@@ -500,6 +529,8 @@ export const Definitions = Event.inventory(
   Tool.Input.Ended,
   Tool.Called,
   Tool.Progress,
+  Subagent.Spawned,
+  Subagent.Ended,
   Tool.Success,
   Tool.Failed,
   Retried,

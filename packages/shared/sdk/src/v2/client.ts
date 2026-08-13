@@ -1,5 +1,5 @@
-// @gco/sdk client — HTTP client that wraps the OpenCode backend API
-// Compatible interface with @opencode-ai/sdk OpencodeClient
+// @gco/sdk client — HTTP client that wraps the Lotus Code backend API
+// Compatible interface with @lotus-code/sdk LotusCodeClient
 
 import type {
   Agent,
@@ -32,7 +32,7 @@ import type {
   Worktree,
 } from "./types"
 
-export type OpencodeClientConfig = {
+export type LotusCodeClientConfig = {
   baseUrl?: string
   signal?: AbortSignal
   directory?: string
@@ -186,11 +186,11 @@ async function* streamSSE<T>(
 
 // ──────────────────────────────────────────────────────────────────────────────
 
-export class OpencodeClient {
+export class LotusCodeClient {
   private baseUrl: string
-  private cfg: OpencodeClientConfig
+  private cfg: LotusCodeClientConfig
 
-  constructor(cfg: OpencodeClientConfig = {}) {
+  constructor(cfg: LotusCodeClientConfig = {}) {
     this.baseUrl = (cfg.baseUrl ?? "http://localhost:3000").replace(/\/$/, "")
     this.cfg = cfg
   }
@@ -376,8 +376,8 @@ export class OpencodeClient {
           return self.fetch<unknown>("POST", `/session/${params.sessionID}/revert/clear`, { query: self.q(params), ...opts })
         },
       },
-      update(params: { sessionID: string; directory?: string; workspace?: string; title?: string }, opts: RequestOptions = {}) {
-        return self.fetch<Session>("PATCH", `/session/${params.sessionID}`, { query: self.q(params), body: { title: params.title }, ...opts })
+      update(params: { sessionID: string; directory?: string; workspace?: string; title?: string; agent?: string }, opts: RequestOptions = {}) {
+        return self.fetch<Session>("PATCH", `/session/${params.sessionID}`, { query: self.q(params), body: { title: params.title, agent: params.agent }, ...opts })
       },
       summarize(params: { sessionID: string; directory?: string; workspace?: string; modelID?: string; providerID?: string }, opts: RequestOptions = {}) {
         return self.fetch<unknown>("POST", `/session/${params.sessionID}/summarize`, { query: self.q(params), body: { modelID: params.modelID, providerID: params.providerID }, ...opts })
@@ -1027,6 +1027,6 @@ export class OpencodeClient {
   }
 }
 
-export function createOpencodeClient(config?: OpencodeClientConfig): OpencodeClient {
-  return new OpencodeClient(config)
+export function createLotusCodeClient(config?: LotusCodeClientConfig): LotusCodeClient {
+  return new LotusCodeClient(config)
 }

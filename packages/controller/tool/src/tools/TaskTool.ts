@@ -1,7 +1,7 @@
 /**
  * TaskTool — create and track tasks (subagent sessions) within a session.
  *
- * Ported from @opencode-ai/opencode tool/task.ts.
+ * Ported from @lotus-code/lotus-code tool/task.ts.
  * Logic kept identical — foreground/background task execution is delegated
  * to the injected TaskRunnerService context.
  */
@@ -77,6 +77,7 @@ export interface TaskRunInput {
   readonly background: boolean
   readonly parentSessionID: string
   readonly parentAgent: string
+  readonly toolCallID: string
 }
 
 export interface TaskRunResult {
@@ -147,6 +148,7 @@ export const makeTaskTool = (runner: ITaskRunnerService): AnyTool =>
             background: input.background === true,
             parentSessionID: context.sessionID,
             parentAgent: context.agent,
+            toolCallID: context.toolCallID,
           })
           .pipe(
             Effect.mapError(

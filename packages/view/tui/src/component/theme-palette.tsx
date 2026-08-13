@@ -34,8 +34,6 @@ export function ThemePalette(props: {
         border={true}
         borderColor={props.border()}
         backgroundColor={props.bg()}
-        marginLeft={2}
-        marginRight={2}
         marginBottom={0}
       >
         <box paddingLeft={1} paddingRight={1}>

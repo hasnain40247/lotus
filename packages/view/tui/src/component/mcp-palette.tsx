@@ -1,15 +1,18 @@
 import { For, Show, type Accessor } from "solid-js"
 import { RGBA, TextAttributes } from "@opentui/core"
+import {
+  C_OVERLAY_BG as C_BG,
+  C_OVERLAY_BORDER as C_BORDER,
+  C_OVERLAY_TEXT as C_TEXT,
+  C_OVERLAY_DIM as C_DIM,
+  C_OVERLAY_SELECT as C_SEL_BG,
+  C_OVERLAY_ACCENT as C_ACCENT,
+} from "../palette"
 
-const C_BORDER = RGBA.fromHex("#C8B896")
-const C_BG     = RGBA.fromHex("#EEE7D5")
-const C_TEXT   = RGBA.fromHex("#1A1A1A")
-const C_DIM    = RGBA.fromHex("#6B5D45")
-const C_SEL_BG = RGBA.fromHex("#DBCFB0")
-const C_ACCENT = RGBA.fromHex("#8B7355")
-const C_OK     = RGBA.fromHex("#2E7D6E")
-const C_WARN   = RGBA.fromHex("#C05F3F")
-const C_ERR    = RGBA.fromHex("#B02828")
+// Semantic status colors — kept theme-agnostic; they pop on both bgs.
+const C_OK   = RGBA.fromHex("#2E7D6E")
+const C_WARN = RGBA.fromHex("#C05F3F")
+const C_ERR  = RGBA.fromHex("#B02828")
 
 export type McpPaletteItem = {
   name: string
@@ -55,8 +58,6 @@ export function McpPalette(props: {
         border={true}
         borderColor={C_BORDER}
         backgroundColor={C_BG}
-        marginLeft={2}
-        marginRight={2}
         marginBottom={0}
       >
         <box paddingLeft={1} paddingRight={1}>

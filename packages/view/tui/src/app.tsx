@@ -28,8 +28,11 @@ import { MentionPalette, MENTION_VIEWPORT } from "./component/mention-palette"
 import { McpPalette, type McpPaletteItem, type McpPalettePhase } from "./component/mcp-palette"
 import { ThemePalette, type ThemePaletteItem, type ThemeName } from "./component/theme-palette"
 import { lotusArt } from "./logo"
+import {
+  ACTIVE_THEME, GLOBAL_CONFIG_PATH, LIGHT_PALETTE, DARK_PALETTE, PALETTE,
+  C_BG, C_EGG, C_WHITE, C_DIM, C_MUTED, C_INPUT, C_ACCENT, C_USER_BG,
+} from "./palette"
 import * as fs from "node:fs"
-import * as os from "node:os"
 import * as pathMod from "node:path"
 import { write as clipboardWrite } from "./clipboard"
 import type { EventSource } from "./context/sdk"
@@ -41,67 +44,7 @@ import { cliErrorMessage, errorFormat } from "./util/error"
 
 registerLotusCodeSpinner()
 
-// ─── Theme system ──────────────────────────────────────────────────────────────
-// Palette resolves at module load from the global config file. Changing the
-// theme via /theme rewrites this config; the TUI must be restarted for a
-// new palette to apply.
-
-const GLOBAL_CONFIG_PATH = pathMod.join(os.homedir(), ".lotus-code", "config.json")
-
-type Palette = {
-  bg: string
-  egg: string     // primary text
-  white: string   // strongest text (user messages)
-  dim: string     // muted / tool text
-  muted: string   // borders & divider band
-  input: string   // input textarea bg
-  accent: string  // running indicator, palette headers
-  userBg: string  // user message bubble bg
-}
-
-const LIGHT_PALETTE: Palette = {
-  bg:     "#F5F1E8",  // paper cream
-  egg:    "#1A1A1A",  // near-black
-  white:  "#000000",
-  dim:    "#6B5D45",  // warm brown-gray
-  muted:  "#C8B896",  // warm border/divider
-  input:  "#EEE7D5",
-  accent: "#8B7355",
-  userBg: "#DBCFB0",
-}
-
-const DARK_PALETTE: Palette = {
-  bg:     "#222222",  // neutral dark
-  egg:    "#E5D9BE",  // beige body text
-  white:  "#F5EFDC",  // brighter beige for user text
-  dim:    "#8F8577",  // muted beige-gray
-  muted:  "#3A3835",  // neutral border/divider
-  input:  "#2D2D2D",  // slightly lifted from bg
-  accent: "#C8B896",  // warm light accent
-  userBg: "#333330",  // subtle warm-tinted bubble
-}
-
-function readGlobalConfig(): { theme?: ThemeName } {
-  try {
-    const raw = fs.readFileSync(GLOBAL_CONFIG_PATH, "utf8")
-    return JSON.parse(raw)
-  } catch {
-    return {}
-  }
-}
-
-const ACTIVE_THEME: ThemeName = readGlobalConfig().theme === "dark" ? "dark" : "light"
-const PALETTE: Palette = ACTIVE_THEME === "dark" ? DARK_PALETTE : LIGHT_PALETTE
-
-// ─── Color palette (derived from ACTIVE_THEME) ─────────────────────────────────
-const C_BG      = RGBA.fromHex(PALETTE.bg)
-const C_EGG     = RGBA.fromHex(PALETTE.egg)
-const C_WHITE   = RGBA.fromHex(PALETTE.white)
-const C_DIM     = RGBA.fromHex(PALETTE.dim)
-const C_MUTED   = RGBA.fromHex(PALETTE.muted)
-const C_INPUT   = RGBA.fromHex(PALETTE.input)
-const C_ACCENT  = RGBA.fromHex(PALETTE.accent)
-const C_USER_BG = RGBA.fromHex(PALETTE.userBg)
+// Palette / theme state comes from ./palette (see readGlobalConfig).
 
 // Minimal empty syntax style — the <markdown> element needs one but we don't
 // need code-syntax highlighting inside assistant prose.

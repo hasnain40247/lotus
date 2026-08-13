@@ -1,11 +1,12 @@
 import { For, Show, type Accessor } from "solid-js"
-import { RGBA, TextAttributes } from "@opentui/core"
-
-const C_BORDER = RGBA.fromHex("#C8B896")
-const C_BG     = RGBA.fromHex("#EEE7D5")
-const C_TEXT   = RGBA.fromHex("#1A1A1A")
-const C_DIM    = RGBA.fromHex("#6B5D45")
-const C_SEL_BG = RGBA.fromHex("#DBCFB0")
+import { TextAttributes } from "@opentui/core"
+import {
+  C_OVERLAY_BG as C_BG,
+  C_OVERLAY_BORDER as C_BORDER,
+  C_OVERLAY_TEXT as C_TEXT,
+  C_OVERLAY_DIM as C_DIM,
+  C_OVERLAY_SELECT as C_SEL_BG,
+} from "../palette"
 
 export const MENTION_VIEWPORT = 8
 
@@ -35,8 +36,6 @@ export function MentionPalette(props: {
         border={true}
         borderColor={C_BORDER}
         backgroundColor={C_BG}
-        marginLeft={2}
-        marginRight={2}
         marginBottom={0}
       >
         <Show

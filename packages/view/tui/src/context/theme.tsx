@@ -38,7 +38,7 @@ const themeSource: ThemeSource = {
   async discover() {
     const directories = [Global.Path.config]
     for (let current = process.cwd(); ; current = path.dirname(current)) {
-      directories.push(path.join(current, ".opencode"))
+      directories.push(path.join(current, ".lotus-code"))
       if (path.dirname(current) === current) break
     }
     return discoverThemes(directories)
@@ -263,7 +263,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         if (theme) return resolveTheme(theme, store.mode)
       }
 
-      return resolveTheme(store.themes.lotus ?? store.themes.opencode, store.mode)
+      return resolveTheme(store.themes.lotus ?? store.themes["lotus-code"], store.mode)
     })
 
     createEffect(() => renderer.setBackgroundColor(values().background))

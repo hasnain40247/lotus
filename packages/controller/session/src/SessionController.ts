@@ -1,7 +1,7 @@
 /**
  * SessionController — Effect service for creating and managing sessions.
  *
- * Ported from @opencode-cli/packages/core/src/session.ts.
+ * Ported from @lotus-code/packages/core/src/session.ts.
  *
  * Exposes:
  *   create(input)               — create a new session, persist to ISessionRepository
@@ -14,7 +14,7 @@
  */
 
 import { Context, DateTime, Effect, Layer, Schema } from "effect"
-import { Session, SessionMessage } from "@gco/schema"
+import { Event, Session, SessionMessage } from "@gco/schema"
 import {
   EventRepository,
   SessionEvent,
@@ -233,7 +233,7 @@ export const layer: Layer.Layer<
         // Persist the PromptAdmitted event
         yield* eventRepo.append(input.sessionID, [
           {
-            id: messageID as unknown as SessionEvent.DurableEvent["id"],
+            id: Event.ID.create(),
             type: "session.next.prompt.admitted",
             durable,
             data: {
@@ -252,6 +252,11 @@ export const layer: Layer.Layer<
 
         // Wake the runner — fire-and-forget; the runner drains in background
         yield* runner.run({ sessionID: input.sessionID, force: false }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.sync(() => {
+              process.stderr.write(`[runner] run failed for ${input.sessionID}:\n${cause}\n`)
+            }),
+          ),
           Effect.forkDetach,
           Effect.asVoid,
         )

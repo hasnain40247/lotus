@@ -1,7 +1,7 @@
 /**
  * Core tool definition types and runtime helpers.
  *
- * Ported from @opencode-ai/core tool/tool.ts — logic is kept identical.
+ * Ported from @lotus-code/core tool/tool.ts — logic is kept identical.
  */
 export * as Tool from "./Tool"
 
@@ -46,7 +46,7 @@ export type Content =
 
 // ---------------------------------------------------------------------------
 // ToolDefinition & ToolOutput shims
-// (mirrors @opencode-ai/llm shapes without the real dependency)
+// (mirrors @lotus-code/llm shapes without the real dependency)
 // ---------------------------------------------------------------------------
 
 export interface ToolDefinition {

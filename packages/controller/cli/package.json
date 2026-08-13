@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "bin": {
-    "gcloud-opencode": "./src/index.ts"
+    "lotus-code": "./src/index.ts"
   },
   "exports": {
     ".": "./src/index.ts"

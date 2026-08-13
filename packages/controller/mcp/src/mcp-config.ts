@@ -2,7 +2,7 @@
  * MCP server configuration schema.
  *
  * Ported from packages/core/src/v1/config/mcp.ts — kept as a local
- * definition so @gco/controller-mcp has no dependency on @opencode-ai/core.
+ * definition so @gco/controller-mcp has no dependency on @lotus-code/core.
  *
  * Written for effect ^3.14.0 (v3 API).
  */

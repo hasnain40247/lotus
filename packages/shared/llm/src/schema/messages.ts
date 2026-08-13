@@ -41,7 +41,13 @@ export type MediaPart = Schema.Schema.Type<typeof MediaPart>
 
 // ToolContent, ToolFileContent, ToolTextContent are exported from ./ids via schema/index.ts
 
-const isToolResultValue = (value: unknown): value is ToolResultValue =>
+type ToolResultValueShape =
+  | { readonly type: "json"; readonly value: unknown }
+  | { readonly type: "text"; readonly value: unknown }
+  | { readonly type: "error"; readonly value: unknown }
+  | { readonly type: "content"; readonly value: ReadonlyArray<ToolContent> }
+
+const isToolResultValue = (value: unknown): value is ToolResultValueShape =>
   isRecord(value) &&
   (value.type === "text" || value.type === "json" || value.type === "error" || value.type === "content") &&
   "value" in value
@@ -67,7 +73,7 @@ export const ToolResultValue = Object.assign(
   ]).annotate({ identifier: "LLM.ToolResult" }),
   {
     is: isToolResultValue,
-    make: (value: unknown, type: ToolResultValue["type"] = "json"): ToolResultValue => {
+    make: (value: unknown, type: ToolResultValueShape["type"] = "json"): ToolResultValueShape => {
       if (isToolResultValue(value)) return value
       if (type === "content") return { type, value: Array.isArray(value) ? value : [] }
       return { type, value }

@@ -1,7 +1,7 @@
 /**
  * QuestionTool — surface a question to the user.
  *
- * Ported from @opencode-ai/core tool/question.ts.
+ * Ported from @lotus-code/core tool/question.ts.
  * Logic kept identical. The actual question-asking mechanism must be provided
  * by callers via the QuestionService context.
  */

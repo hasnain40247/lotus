@@ -1,7 +1,7 @@
 import type { TuiConfig } from "./config"
 import stripAnsi from "strip-ansi"
 
-// Inline types previously imported from @opencode-ai/plugin/tui
+// Inline types previously imported from @lotus-code/plugin/tui
 export type TuiAttentionWhen = "always" | "focused" | "blurred"
 export type TuiAttentionNotifySkipReason =
   | "attention_disabled"
@@ -52,7 +52,7 @@ type TuiAttentionHost = TuiAttention & {
   dispose(): void
 }
 
-const DEFAULT_TITLE = "gcloud-opencode"
+const DEFAULT_TITLE = "lotus-code"
 const TITLE_LIMIT = 80
 const MESSAGE_LIMIT = 240
 

@@ -1,7 +1,7 @@
 /**
  * McpAuthController — manages OAuth tokens and client credentials for MCP servers.
  *
- * Ported from packages/opencode/src/mcp/auth.ts.
+ * Ported from packages/lotus-code/src/mcp/auth.ts.
  * Stores auth data in a local JSON file inside the XDG data directory.
  */
 export * as McpAuthController from "./McpAuthController"
@@ -13,11 +13,11 @@ import { xdgData } from "xdg-basedir"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 
 // ---------------------------------------------------------------------------
-// Data dir helper (replaces @opencode-ai/core/global)
+// Data dir helper (replaces @lotus-code/core/global)
 // ---------------------------------------------------------------------------
 
 function dataDir(): string {
-  return path.join(xdgData ?? path.join(os.homedir(), ".local", "share"), "opencode")
+  return path.join(xdgData ?? path.join(os.homedir(), ".local", "share"), "lotus-code")
 }
 
 // ---------------------------------------------------------------------------

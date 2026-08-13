@@ -1,7 +1,7 @@
 /**
  * ReadTool — file reading with image support (JPEG, PNG, GIF, WebP as base64).
  *
- * Ported from @opencode-ai/core tool/read.ts.
+ * Ported from @lotus-code/core tool/read.ts.
  * Logic kept identical.
  */
 export * as ReadTool from "./ReadTool"

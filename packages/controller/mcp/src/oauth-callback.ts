@@ -1,8 +1,8 @@
 /**
  * Local OAuth callback HTTP server for MCP authentication flows.
  *
- * Ported from packages/opencode/src/mcp/oauth-callback.ts.
- * The OauthCallbackPage dependency is inlined to avoid @opencode-ai/core.
+ * Ported from packages/lotus-code/src/mcp/oauth-callback.ts.
+ * The OauthCallbackPage dependency is inlined to avoid @lotus-code/core.
  */
 export * as McpOAuthCallback from "./oauth-callback"
 
@@ -46,7 +46,7 @@ function callbackPage(status: "success" | "error", detail?: string): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>${isSuccess ? "Authorization successful" : "Authorization failed"} · OpenCode</title>
+  <title>${isSuccess ? "Authorization successful" : "Authorization failed"} · Lotus Code</title>
   <style>
     body { font-family: ui-sans-serif,system-ui,sans-serif; display:grid; place-items:center; min-height:100vh; margin:0; background:#f8f8f8; color:#6f6f6f; }
     .card { background:#fcfcfc; border:1px solid #e5e5e5; border-radius:14px; padding:2.25rem 2rem 1.75rem; text-align:center; width:min(100%,28rem); }
@@ -59,9 +59,9 @@ function callbackPage(status: "success" | "error", detail?: string): string {
 <body>
   <div class="card">
     <h1>${isSuccess ? "Authorization successful" : "Authorization failed"}</h1>
-    <p>${isSuccess ? "OpenCode is now connected to MCP." : "OpenCode could not complete MCP authorization."}${detail ? "" : ""}</p>
+    <p>${isSuccess ? "Lotus Code is now connected to MCP." : "Lotus Code could not complete MCP authorization."}${detail ? "" : ""}</p>
     ${detail ? `<pre>${escapeHtml(detail)}</pre>` : ""}
-    <p class="fn">${isSuccess ? "You can close this window." : "Close this window and try again from OpenCode."}</p>
+    <p class="fn">${isSuccess ? "You can close this window." : "Close this window and try again from Lotus Code."}</p>
   </div>
   ${isSuccess ? "<script>setTimeout(function(){try{window.close()}catch(e){}},2500)</script>" : ""}
 </body>

@@ -1,4 +1,4 @@
-// Ported from @opencode-ai/sdk v2 gen/types.gen.ts
+// Ported from @lotus-code/sdk v2 gen/types.gen.ts
 // All types needed by @gco/view-tui
 
 export type ClientOptions = {

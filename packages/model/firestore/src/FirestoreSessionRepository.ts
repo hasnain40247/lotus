@@ -82,22 +82,26 @@ class FirestoreSessionRepositoryImpl implements ISessionRepository {
   ): Effect.Effect<Session.Info[], Error> {
     return Effect.tryPromise({
       try: async () => {
-        let q = this.sessions
-          .where("projectID", "==", projectID)
-          .orderBy("time.created", "desc")
+        // Filter client-side to avoid requiring a composite index on
+        // (projectID, time.created). Firestore only auto-indexes single fields.
+        const snap = await this.sessions.where("projectID", "==", projectID).get()
+        const rows = snap.docs.map((d) => d.data()).filter((r) => r["time"]?.["archived"] == null)
 
+        // Sort newest-first in memory
+        rows.sort((a, b) => {
+          const aMs = typeof a["time"]?.["created"] === "number" ? a["time"]["created"] : 0
+          const bMs = typeof b["time"]?.["created"] === "number" ? b["time"]["created"] : 0
+          return bMs - aMs
+        })
+
+        // Apply cursor + limit in memory
+        let start = 0
         if (anchor?.cursor) {
-          const cursorSnap = await this.sessions.doc(anchor.cursor).get()
-          if (cursorSnap.exists) {
-            q = q.startAfter(cursorSnap)
-          }
+          const idx = rows.findIndex((r) => r["id"] === anchor.cursor)
+          if (idx !== -1) start = idx + 1
         }
-        if (anchor?.limit) {
-          q = q.limit(anchor.limit)
-        }
-
-        const snap = await q.get()
-        return snap.docs.map((d) => d.data())
+        const page = anchor?.limit ? rows.slice(start, start + anchor.limit) : rows.slice(start)
+        return page
       },
       catch: (e) => new Error(`FirestoreSessionRepository.list failed: ${e}`),
     }).pipe(

@@ -1,4 +1,4 @@
-// Ported from @opencode-ai/sdk v2 data.ts
+// Ported from @lotus-code/sdk v2 data.ts
 import type { Part, UserMessage } from "./types"
 
 export const message = {

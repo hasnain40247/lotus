@@ -1,7 +1,7 @@
 /**
  * DbCommand — database tools.
  *
- * For gcloud-opencode, the "database" is Firestore.
+ * For lotus-code, the "database" is Firestore.
  * The path subcommand prints the Firestore project/collection info
  * instead of a SQLite file path.
  *
@@ -39,7 +39,7 @@ const DbPathCommand: CommandModule<object, object> = {
         Effect.catch((_err) => {
           // Fallback: print env var info when GCP config is not available
           process.stdout.write(
-            `GCP Project: ${process.env.GCLOUD_OPENCODE_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "(not set)"}` + EOL,
+            `GCP Project: ${process.env.LOTUS_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "(not set)"}` + EOL,
           )
           return Effect.void
         }),

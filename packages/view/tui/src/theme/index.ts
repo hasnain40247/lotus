@@ -6,7 +6,7 @@ import gruvbox from "./assets/gruvbox.json" with { type: "json" }
 import lotus from "./assets/lotus.json" with { type: "json" }
 import nord from "./assets/nord.json" with { type: "json" }
 import onedark from "./assets/one-dark.json" with { type: "json" }
-import opencode from "./assets/opencode.json" with { type: "json" }
+import lotusCode from "./assets/lotus-code.json" with { type: "json" }
 import rosepine from "./assets/rosepine.json" with { type: "json" }
 import tokyonight from "./assets/tokyonight.json" with { type: "json" }
 import vesper from "./assets/vesper.json" with { type: "json" }
@@ -113,7 +113,7 @@ export const DEFAULT_THEMES: Record<string, ThemeJson> = {
   gruvbox,
   nord,
   ["one-dark"]: onedark,
-  opencode,
+  ["lotus-code"]: lotusCode,
   rosepine,
   tokyonight,
   vesper,

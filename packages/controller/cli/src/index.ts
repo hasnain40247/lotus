@@ -1,29 +1,31 @@
 #!/usr/bin/env bun
 /**
- * gcloud-opencode CLI entry point.
+ * lotus-code CLI entry point.
  *
  * Wires all commands together via yargs, sets the script name, and provides
  * consistent help/version flags.
  */
 
-// Load opencode.json GCP config into env vars before Effect reads them.
+// Load lotus-code.json GCP config into env vars before Effect reads them.
 // Effect's Config.string() only reads process.env, so this must run first.
 await (async () => {
   try {
-    const file = Bun.file("opencode.json")
+    const file = Bun.file("lotus-code.json")
     if (await file.exists()) {
       const cfg = await file.json()
-      if (cfg?.gcp?.projectId && !process.env.GCLOUD_OPENCODE_PROJECT_ID)
-        process.env.GCLOUD_OPENCODE_PROJECT_ID = cfg.gcp.projectId
-      if (cfg?.gcp?.region && !process.env.GCLOUD_OPENCODE_REGION)
-        process.env.GCLOUD_OPENCODE_REGION = cfg.gcp.region
+      if (cfg?.gcp?.projectId && !process.env.LOTUS_PROJECT_ID)
+        process.env.LOTUS_PROJECT_ID = cfg.gcp.projectId
+      if (cfg?.gcp?.region && !process.env.LOTUS_REGION)
+        process.env.LOTUS_REGION = cfg.gcp.region
       if (cfg?.provider?.deepseek?.apiKey && !process.env.DEEPSEEK_API_KEY)
         process.env.DEEPSEEK_API_KEY = cfg.provider.deepseek.apiKey
       if (cfg?.provider?.anthropic?.apiKey && !process.env.ANTHROPIC_API_KEY)
         process.env.ANTHROPIC_API_KEY = cfg.provider.anthropic.apiKey
+      if (cfg?.server?.port && !process.env.LOTUS_SERVER_PORT)
+        process.env.LOTUS_SERVER_PORT = String(cfg.server.port)
     }
   } catch {
-    // Malformed opencode.json — ignore, the config layer will produce a clear error.
+    // Malformed lotus-code.json — ignore, the config layer will produce a clear error.
   }
 })()
 
@@ -52,7 +54,7 @@ import { PromptDisplayCommand } from "./commands/PromptDisplayCommand.js"
 // Version
 // ---------------------------------------------------------------------------
 
-const VERSION = process.env.GCO_VERSION ?? "0.1.0"
+const VERSION = process.env.LOTUS_VERSION ?? "0.1.0"
 
 // ---------------------------------------------------------------------------
 // CLI setup
@@ -62,7 +64,7 @@ const args = hideBin(process.argv)
 
 const cli = yargs(args)
   .parserConfiguration({ "populate--": true })
-  .scriptName("gcloud-opencode")
+  .scriptName("lotus-code")
   .wrap(100)
   .help("help", "show help")
   .alias("help", "h")

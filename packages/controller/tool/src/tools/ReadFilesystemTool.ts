@@ -1,7 +1,7 @@
 /**
  * ReadFilesystemTool — file-system read helpers used by ReadTool.
  *
- * Ported from @opencode-ai/core tool/read-filesystem.ts.
+ * Ported from @lotus-code/core tool/read-filesystem.ts.
  * Logic kept identical.
  */
 export * as ReadFilesystemTool from "./ReadFilesystemTool"
@@ -98,7 +98,7 @@ export class ListPage extends Schema.Class<ListPage>("ReadTool.ListPage")({
 }) {}
 
 // ---------------------------------------------------------------------------
-// FileContent shape (matches @opencode-ai/core FileSystem.Content)
+// FileContent shape (matches @lotus-code/core FileSystem.Content)
 // ---------------------------------------------------------------------------
 
 export const TextContent = Schema.Struct({

@@ -38,7 +38,7 @@ describe("AgentController", () => {
       Effect.gen(function* () {
         const controller = yield* AgentController
         const agent = yield* controller.get("build" as any)
-        expect(agent?.id).toBe("build")
+        expect(agent?.id as string).toBe("build")
       }).pipe(Effect.provide(agentLayer)),
     )
   })
@@ -68,7 +68,7 @@ describe("AgentController", () => {
       Effect.gen(function* () {
         const controller = yield* AgentController
         const agent = yield* controller.resolve("explore")
-        expect(agent?.id).toBe("explore")
+        expect(agent?.id as string).toBe("explore")
       }).pipe(Effect.provide(agentLayer)),
     )
   })
@@ -89,8 +89,8 @@ describe("AgentController", () => {
         const controller = yield* AgentController
         const agents = yield* controller.all()
         const ids = agents.map((a) => a.id)
-        expect(ids).toContain("build")
-        expect(ids).toContain("plan")
+        expect(ids as string[]).toContain("build")
+        expect(ids as string[]).toContain("plan")
       }).pipe(Effect.provide(agentLayer)),
     )
   })

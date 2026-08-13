@@ -265,7 +265,21 @@ export const {
           setStore("session_diff", event.properties.sessionID, event.properties.diff)
           break
 
+        case "session.created": {
+          if (!event.properties.info) break
+          const result = search(store.session, event.properties.info.id, (s) => s.id)
+          if (!result.found) {
+            setStore(
+              "session",
+              produce((draft) => {
+                draft.splice(result.index, 0, event.properties.info)
+              }),
+            )
+          }
+          break
+        }
         case "session.deleted": {
+          if (!event.properties.info?.id) break
           const result = search(store.session, event.properties.info.id, (s) => s.id)
           if (result.found) {
             setStore(
@@ -278,6 +292,7 @@ export const {
           break
         }
         case "session.updated": {
+          if (!event.properties.info?.id) break
           const result = search(store.session, event.properties.info.id, (s) => s.id)
           if (result.found) {
             setStore("session", result.index, reconcile(event.properties.info))

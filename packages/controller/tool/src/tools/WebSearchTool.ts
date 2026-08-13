@@ -1,7 +1,7 @@
 /**
  * WebSearchTool — web search via Exa or Parallel AI backends.
  *
- * Ported from @opencode-ai/core tool/websearch.ts.
+ * Ported from @lotus-code/core tool/websearch.ts.
  * Logic kept identical.
  */
 export * as WebSearchTool from "./WebSearchTool"
@@ -71,16 +71,16 @@ export class ConfigService extends Context.Service<ConfigService, WebSearchConfi
 export const defaultConfigLayer = Layer.sync(ConfigService, () =>
   ConfigService.of({
     provider:
-      process.env.OPENCODE_WEBSEARCH_PROVIDER === "exa" || process.env.OPENCODE_WEBSEARCH_PROVIDER === "parallel"
-        ? (process.env.OPENCODE_WEBSEARCH_PROVIDER as Provider)
+      process.env.LOTUS_WEBSEARCH_PROVIDER === "exa" || process.env.LOTUS_WEBSEARCH_PROVIDER === "parallel"
+        ? (process.env.LOTUS_WEBSEARCH_PROVIDER as Provider)
         : undefined,
     enableExa:
-      process.env.OPENCODE_EXPERIMENTAL === "true" ||
-      process.env.OPENCODE_ENABLE_EXA === "true" ||
-      process.env.OPENCODE_EXPERIMENTAL_EXA === "true",
+      process.env.LOTUS_EXPERIMENTAL === "true" ||
+      process.env.LOTUS_ENABLE_EXA === "true" ||
+      process.env.LOTUS_EXPERIMENTAL_EXA === "true",
     enableParallel:
-      process.env.OPENCODE_ENABLE_PARALLEL === "true" ||
-      process.env.OPENCODE_EXPERIMENTAL_PARALLEL === "true",
+      process.env.LOTUS_ENABLE_PARALLEL === "true" ||
+      process.env.LOTUS_EXPERIMENTAL_PARALLEL === "true",
     exaApiKey: process.env.EXA_API_KEY,
     parallelApiKey: process.env.PARALLEL_API_KEY,
   }),
@@ -261,11 +261,11 @@ export const makeWebSearchTool = (config: WebSearchConfig): AnyTool =>
 /** Default tool instance (uses env-var-based config). */
 export const tool: AnyTool = makeWebSearchTool({
   provider:
-    process.env.OPENCODE_WEBSEARCH_PROVIDER === "exa" || process.env.OPENCODE_WEBSEARCH_PROVIDER === "parallel"
-      ? (process.env.OPENCODE_WEBSEARCH_PROVIDER as Provider)
+    process.env.LOTUS_WEBSEARCH_PROVIDER === "exa" || process.env.LOTUS_WEBSEARCH_PROVIDER === "parallel"
+      ? (process.env.LOTUS_WEBSEARCH_PROVIDER as Provider)
       : undefined,
-  enableExa: process.env.OPENCODE_EXPERIMENTAL === "true" || process.env.OPENCODE_ENABLE_EXA === "true",
-  enableParallel: process.env.OPENCODE_ENABLE_PARALLEL === "true",
+  enableExa: process.env.LOTUS_EXPERIMENTAL === "true" || process.env.LOTUS_ENABLE_EXA === "true",
+  enableParallel: process.env.LOTUS_ENABLE_PARALLEL === "true",
   exaApiKey: process.env.EXA_API_KEY,
   parallelApiKey: process.env.PARALLEL_API_KEY,
 })

@@ -1,17 +1,23 @@
-# gcloud-opencode
+# Lotus
 
-A terminal-based AI coding assistant built with an MVC architecture and powered by Google Cloud. A focused rebuild of [opencode](https://github.com/opencode-ai/opencode) — single-user, no team features, four LLM providers, five GCP services.
+A terminal-based AI pair programmer, built with an MVC architecture on Google Cloud. Single-user by design, four LLM providers, first-class MCP support.
+
+<p align="center">
+  <img src="./assets/image.png" alt="Lotus running in a terminal" width="820" />
+</p>
 
 ## Features
 
-- **Full terminal UI** — SolidJS + OpenTUI, keyboard-driven
+- **Full terminal UI** — SolidJS + OpenTUI, keyboard-driven, warm paper light theme and neutral dark theme
 - **MVC architecture** — strict layer boundaries enforced by ESLint
 - **4 LLM providers** — Anthropic (Claude), Vertex AI (Gemini), DeepSeek, Ollama
 - **Google Cloud backend** — Firestore sessions, Secret Manager credentials, Cloud Storage exports, Cloud Logging
-- **MCP support** — Model Context Protocol client with OAuth
-- **17 built-in tools** — bash, file ops, web, LSP, subagents, and more
+- **MCP support** — Model Context Protocol client with OAuth; MCP tools are merged into the LLM's tool catalog so the model can call them directly
+- **Built-in tools** — bash, file ops, web, LSP, subagents, and more
 - **Named agents** — configurable system prompts, models, and permissions per agent
 - **Session history** — persistent across machines via Firestore
+- **Slash commands** — `/agent`, `/mcp`, `/theme`, `/rename`, `/compact`, `/timeline`, and more
+- **@ file mentions** — fuzzy-search files from the current project and drop them into your prompt inline
 
 ## Requirements
 
@@ -22,8 +28,8 @@ A terminal-based AI coding assistant built with an MVC architecture and powered 
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/gcloud-opencode
-cd gcloud-opencode
+git clone https://github.com/yourusername/lotus
+cd lotus
 bun install
 ```
 
@@ -41,7 +47,7 @@ gcloud services enable firestore.googleapis.com \
   logging.googleapis.com
 ```
 
-Add a `gcp` block to your `~/.opencode/opencode.json`:
+Add a `gcp` block to your project's `lotus-code.json`:
 
 ```jsonc
 {
@@ -49,9 +55,9 @@ Add a `gcp` block to your `~/.opencode/opencode.json`:
     "projectId": "your-gcp-project-id",
     "region": "us-central1"
   },
-  "providers": {
+  "provider": {
     "anthropic": { "apiKey": "sk-ant-..." },
-    "deepseek": { "apiKey": "sk-..." }
+    "deepseek":  { "apiKey": "sk-..." }
   }
 }
 ```
@@ -92,9 +98,20 @@ bun run dev -- --model deepseek/deepseek-chat
 bun run dev -- --model ollama/llama3.2
 ```
 
+## Slash Commands
+
+Type `/` in the TUI to browse. Highlights:
+
+- `/agent` — list, switch to, delete, or create a new agent (name → description → mode)
+- `/mcp` — list connected MCP servers (with status), reconnect, delete, or add a new local server (name → command → env)
+- `/theme` — pick Light or Dark; stored in `~/.lotus-code/config.json` (restart to apply)
+- `/rename` — rename the current session
+- `/compact` — summarize the session to shrink the context window
+- `/timeline` — jump to a message in the transcript
+
 ## Agents
 
-Configure agents in `opencode.json` or drop an `AGENTS.md` in your project root:
+Configure agents in `lotus-code.json`, drop an `AGENTS.md` in your project root, or create them interactively via `/agent`:
 
 ```jsonc
 {
@@ -114,6 +131,33 @@ Configure agents in `opencode.json` or drop an `AGENTS.md` in your project root:
 }
 ```
 
+Built-in agents: `build` (default), `plan`, `explore`, `general`, plus the internal `compaction` / `title` / `summary` helpers.
+
+## MCP Servers
+
+Local (subprocess) or remote (URL). Add via `/mcp` or by editing `lotus-code.json`:
+
+```jsonc
+{
+  "mcp": {
+    "memory": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-memory"],
+      "environment": {
+        "MEMORY_FILE_PATH": "/absolute/path/to/memory.json"
+      }
+    },
+    "github": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
+      "environment": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..." }
+    }
+  }
+}
+```
+
+Connected servers' tools appear directly in the LLM's tool catalog (namespaced `{server}_{tool}`), so the model can call them like any built-in.
+
 ## Development
 
 ```bash
@@ -127,14 +171,14 @@ bun run lint         # lint all packages
 
 ```
 packages/
-  shared/       schema, llm providers
+  shared/       schema, llm providers, sdk
   model/        domain interfaces, Firestore repos, Secret Manager creds, test layer
   controller/   CLI commands, session runner, agent, MCP, tools
   view/         TUI (SolidJS + OpenTUI), CLI formatters
-  cloud/    GCP SDK wrappers (Firestore, Storage, Secret Manager, Vertex AI, Logging)
+  cloud/        GCP SDK wrappers (Firestore, Storage, Secret Manager, Vertex AI, Logging)
 ```
 
-See [`ARCHITECTURE_PLAN.md`](./ARCHITECTURE_PLAN.md) for the full design decisions and rationale.
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design decisions and rationale.
 
 ## License
 

@@ -24,24 +24,24 @@ import { ProductionLayer } from "../bootstrap.js"
 // Helpers
 // ---------------------------------------------------------------------------
 
-const VERSION = process.env.GCO_VERSION ?? "0.1.0"
+const VERSION = process.env.LOTUS_VERSION ?? "0.1.0"
 
 function configPath(): string {
   return process.env.XDG_CONFIG_HOME
-    ? path.join(process.env.XDG_CONFIG_HOME, "gcloud-opencode")
-    : path.join(os.homedir(), ".config", "gcloud-opencode")
+    ? path.join(process.env.XDG_CONFIG_HOME, "lotus-code")
+    : path.join(os.homedir(), ".config", "lotus-code")
 }
 
 function dataPath(): string {
   return process.env.XDG_DATA_HOME
-    ? path.join(process.env.XDG_DATA_HOME, "gcloud-opencode")
-    : path.join(os.homedir(), ".local", "share", "gcloud-opencode")
+    ? path.join(process.env.XDG_DATA_HOME, "lotus-code")
+    : path.join(os.homedir(), ".local", "share", "lotus-code")
 }
 
 function cachePath(): string {
   return process.env.XDG_CACHE_HOME
-    ? path.join(process.env.XDG_CACHE_HOME, "gcloud-opencode")
-    : path.join(os.homedir(), ".cache", "gcloud-opencode")
+    ? path.join(process.env.XDG_CACHE_HOME, "lotus-code")
+    : path.join(os.homedir(), ".cache", "lotus-code")
 }
 
 function statePath(): string {
@@ -166,7 +166,7 @@ const DebugInfoCommand: CommandModule<object, object> = {
       .filter((x): x is string => Boolean(x))
       .join(" / ")
 
-    process.stdout.write(`gcloud-opencode version: ${VERSION}` + EOL)
+    process.stdout.write(`lotus-code version: ${VERSION}` + EOL)
     process.stdout.write(`os: ${os.type()} ${os.release()} ${os.arch()}` + EOL)
     process.stdout.write(`node: ${process.version}` + EOL)
     process.stdout.write(`terminal: ${terminal || "unknown"}` + EOL)

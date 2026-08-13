@@ -101,6 +101,7 @@
       "dependencies": {
         "@gco/cloud": "workspace:*",
         "@gco/controller-agent": "workspace:*",
+        "@gco/controller-mcp": "workspace:*",
         "@gco/controller-tool": "workspace:*",
         "@gco/llm": "workspace:*",
         "@gco/model-domain": "workspace:*",

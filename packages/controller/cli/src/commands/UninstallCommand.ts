@@ -1,5 +1,5 @@
 /**
- * UninstallCommand — uninstall gcloud-opencode and remove related files.
+ * UninstallCommand — uninstall lotus-code and remove related files.
  *
  * Options:
  *   --keep-config  keep configuration files
@@ -64,24 +64,24 @@ async function dirSize(dir: string): Promise<number> {
 function configDir(): string {
   return (
     process.env.XDG_CONFIG_HOME
-      ? path.join(process.env.XDG_CONFIG_HOME, "gcloud-opencode")
-      : path.join(os.homedir(), ".config", "gcloud-opencode")
+      ? path.join(process.env.XDG_CONFIG_HOME, "lotus-code")
+      : path.join(os.homedir(), ".config", "lotus-code")
   )
 }
 
 function dataDir(): string {
   return (
     process.env.XDG_DATA_HOME
-      ? path.join(process.env.XDG_DATA_HOME, "gcloud-opencode")
-      : path.join(os.homedir(), ".local", "share", "gcloud-opencode")
+      ? path.join(process.env.XDG_DATA_HOME, "lotus-code")
+      : path.join(os.homedir(), ".local", "share", "lotus-code")
   )
 }
 
 function cacheDir(): string {
   return (
     process.env.XDG_CACHE_HOME
-      ? path.join(process.env.XDG_CACHE_HOME, "gcloud-opencode")
-      : path.join(os.homedir(), ".cache", "gcloud-opencode")
+      ? path.join(process.env.XDG_CACHE_HOME, "lotus-code")
+      : path.join(os.homedir(), ".cache", "lotus-code")
   )
 }
 
@@ -91,7 +91,7 @@ function cacheDir(): string {
 
 async function uninstallHandler(args: UninstallArgs): Promise<void> {
   process.stdout.write(EOL)
-  prompts.intro("Uninstall gcloud-opencode")
+  prompts.intro("Uninstall lotus-code")
 
   const targets: Array<{ path: string; label: string; keep: boolean }> = [
     { path: dataDir(), label: "Data", keep: args.keepData },
@@ -150,7 +150,7 @@ async function uninstallHandler(args: UninstallArgs): Promise<void> {
     }
   }
 
-  prompts.log.success("Thank you for using gcloud-opencode!")
+  prompts.log.success("Thank you for using lotus-code!")
   prompts.outro("Done")
 }
 
@@ -160,7 +160,7 @@ async function uninstallHandler(args: UninstallArgs): Promise<void> {
 
 export const UninstallCommand: CommandModule<object, UninstallArgs> = {
   command: "uninstall",
-  describe: "uninstall gcloud-opencode and remove all related files",
+  describe: "uninstall lotus-code and remove all related files",
 
   builder: (yargs: Argv) =>
     yargs

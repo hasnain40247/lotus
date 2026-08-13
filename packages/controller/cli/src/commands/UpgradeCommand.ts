@@ -1,5 +1,5 @@
 /**
- * UpgradeCommand — upgrade gcloud-opencode to the latest or a specific version.
+ * UpgradeCommand — upgrade lotus-code to the latest or a specific version.
  *
  * Options:
  *   [target]   version to upgrade to (e.g., "0.2.0" or "v0.2.0")
@@ -52,7 +52,7 @@ function upgradeCommands(): Record<InstallMethod, string[]> {
     pnpm: ["pnpm", "install", "-g", "@gco/controller-cli"],
     bun: ["bun", "install", "-g", "@gco/controller-cli"],
     yarn: ["yarn", "global", "add", "@gco/controller-cli"],
-    brew: ["brew", "upgrade", "gcloud-opencode"],
+    brew: ["brew", "upgrade", "lotus-code"],
     unknown: [],
   }
 }
@@ -63,14 +63,14 @@ function upgradeCommands(): Record<InstallMethod, string[]> {
 
 async function upgradeHandler(args: UpgradeArgs): Promise<void> {
   process.stdout.write(EOL)
-  prompts.intro("Upgrade gcloud-opencode")
+  prompts.intro("Upgrade lotus-code")
 
   const detectedMethod = detectInstallMethod()
   const method = (args.method as InstallMethod | undefined) ?? detectedMethod
 
   if (method === "unknown") {
     prompts.log.error(
-      `gcloud-opencode is installed at ${process.execPath} and may be managed by a package manager.` + EOL +
+      `lotus-code is installed at ${process.execPath} and may be managed by a package manager.` + EOL +
         "Use --method to specify how to upgrade (npm, pnpm, bun, brew, etc.)",
     )
     prompts.outro("Done")
@@ -127,7 +127,7 @@ async function upgradeHandler(args: UpgradeArgs): Promise<void> {
 
 export const UpgradeCommand: CommandModule<object, UpgradeArgs> = {
   command: "upgrade [target]",
-  describe: "upgrade gcloud-opencode to the latest or a specific version",
+  describe: "upgrade lotus-code to the latest or a specific version",
 
   builder: (yargs: Argv) =>
     yargs

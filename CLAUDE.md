@@ -1,4 +1,4 @@
-# gcloud-opencode
+# lotus-code
 
 AI coding assistant CLI — terminal-only, single-user, MVC architecture backed by Google Cloud.
 
@@ -31,7 +31,7 @@ Five services: Firestore (sessions/events), Secret Manager (API keys), Cloud Sto
 # One-time local auth — all @google-cloud/* SDKs pick this up automatically
 gcloud auth application-default login
 
-# Add to your opencode.json
+# Add to your lotus-code.json
 {
   "gcp": {
     "projectId": "your-gcp-project-id",
@@ -80,21 +80,21 @@ bun test  # uses in-memory layer automatically
 ## Commands
 
 ```bash
-gcloud-opencode                  # open TUI (default)
-gcloud-opencode run "prompt"     # non-interactive single prompt
-gcloud-opencode session list     # list sessions
-gcloud-opencode session delete   # delete a session
-gcloud-opencode export           # export session to Cloud Storage
-gcloud-opencode import           # import a session
-gcloud-opencode providers        # manage LLM provider auth
-gcloud-opencode models           # list available models
-gcloud-opencode agent list       # list configured agents
-gcloud-opencode agent create     # create a new agent
-gcloud-opencode mcp list         # list MCP servers
-gcloud-opencode mcp add          # add an MCP server
-gcloud-opencode mcp auth         # authenticate with an MCP server
-gcloud-opencode upgrade          # upgrade to latest version
-gcloud-opencode uninstall        # uninstall
+lotus-code                  # open TUI (default)
+lotus-code run "prompt"     # non-interactive single prompt
+lotus-code session list     # list sessions
+lotus-code session delete   # delete a session
+lotus-code export           # export session to Cloud Storage
+lotus-code import           # import a session
+lotus-code providers        # manage LLM provider auth
+lotus-code models           # list available models
+lotus-code agent list       # list configured agents
+lotus-code agent create     # create a new agent
+lotus-code mcp list         # list MCP servers
+lotus-code mcp add          # add an MCP server
+lotus-code mcp auth         # authenticate with an MCP server
+lotus-code upgrade          # upgrade to latest version
+lotus-code uninstall        # uninstall
 ```
 
 ## Effect-TS Patterns
@@ -114,7 +114,7 @@ const appLayer = controllerLayer.pipe(Layer.provide(modelLayer))
 
 ## Agents
 
-Defined in `opencode.json` under `agents` key or via `AGENTS.md` files in the project root.
+Defined in `lotus-code.json` under `agents` key or via `AGENTS.md` files in the project root.
 
 ```jsonc
 {

@@ -13,7 +13,7 @@ export const InMemorySessionRepositoryLive = Layer.succeed(SessionRepository, ((
 
     list(projectID: string, anchor?: ListAnchor): Effect.Effect<Session.Info[], Error> {
       return Effect.sync(() => {
-        let results = [...store.values()].filter((s) => s.projectID === projectID)
+        let results = [...store.values()].filter((s) => s.projectID === projectID && s.time.archived === undefined)
 
         if (anchor?.cursor) {
           const cursorIndex = results.findIndex((s) => s.id === anchor.cursor)

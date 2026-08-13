@@ -2,10 +2,10 @@ export * from "./types"
 export * from "./client"
 export * as data from "./data"
 
-import { createOpencodeClient } from "./client"
-import type { OpencodeClientConfig } from "./client"
+import { createLotusCodeClient } from "./client"
+import type { LotusCodeClientConfig } from "./client"
 
-export async function createOpencode(options?: OpencodeClientConfig) {
-  const client = createOpencodeClient(options)
+export async function createLotusCode(options?: LotusCodeClientConfig) {
+  const client = createLotusCodeClient(options)
   return { client }
 }

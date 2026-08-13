@@ -1,4 +1,4 @@
-# Architecture: gcloud-opencode
+# Architecture: lotus-code
 
 Terminal-only AI coding assistant CLI. MVC monorepo backed by Google Cloud. Single-user, Bun + TypeScript + Effect-TS.
 
@@ -79,8 +79,8 @@ All collections are scoped under `/users/{email}/` — different Google accounts
 GCP project and region come from environment variables read by `cloud/src/config.ts`:
 
 ```bash
-GCLOUD_OPENCODE_PROJECT_ID=my-project   # required
-GCLOUD_OPENCODE_REGION=us-central1      # optional, defaults to us-central1
+LOTUS_PROJECT_ID=my-project   # required
+LOTUS_REGION=us-central1      # optional, defaults to us-central1
 ```
 
 ---
@@ -180,7 +180,7 @@ Compaction failures are swallowed (`Effect.catchCause(() => Effect.void)`) — t
 
 ### MCP (`controller/mcp/src/`)
 
-Full MCP client management with OAuth. Tokens stored in `~/.local/share/opencode/mcp-auth.json` (XDG, mode 0o600). OAuth callback runs a local HTTP server.
+Full MCP client management with OAuth. Tokens stored in `~/.local/share/lotus-code/mcp-auth.json` (XDG, mode 0o600). OAuth callback runs a local HTTP server.
 
 ### Tool (`controller/tool/src/`)
 
@@ -192,6 +192,119 @@ Full MCP client management with OAuth. Tokens stored in `~/.local/share/opencode
 ### CLI (`controller/cli/src/`)
 
 Yargs entry point wiring 15 commands. `bootstrap.ts` exports `ProductionLayer` and `TestLayer`.
+
+---
+
+## In-Process HTTP API (`tui-server.ts`)
+
+When the TUI starts, an HTTP server binds to a random port on `localhost`. The port is printed at startup (`[tui-server] listening on http://localhost:<port>`). All responses are JSON unless noted.
+
+### Health & Config
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/global/health` | Returns `"OK"` |
+| `GET` | `/global/event` | SSE stream — emits session events and lifecycle notifications |
+| `GET` | `/config` | Current config `{ model, ...overrides }` |
+| `PATCH` | `/config` | Merge body into config; persists `model` changes to `lotus-code.json` |
+| `GET` | `/provider` | Provider list with model catalog and connection status |
+| `GET` | `/provider/auth` | Provider auth methods |
+| `GET` | `/path` | Resolved filesystem paths (home, state, config, worktree, directory) |
+| `POST` | `/global/dispose` | Tear down the server |
+
+### Sessions
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/session` | List all sessions for the current project |
+| `POST` | `/session` | Create a session — body: `{ title?, agent?, model?, directory? }` |
+| `GET` | `/session/status` | Map of `{ sessionID → "running" \| "idle" }` |
+| `GET` | `/session/:id` | Get a single session |
+| `POST` | `/session/:id/prompt` | Submit a prompt — body: `{ text }` — LLM runs in background |
+| `GET` | `/session/:id/message` | Full conversation history projected from events |
+| `GET` | `/session/:id/diff` | `git status` for the session's working directory |
+| `GET` | `/session/:id/todo` | Todo items (requires TodoService wiring — currently `[]`) |
+| `POST` | `/session/:id/abort` | Interrupt the running LLM turn |
+
+### Debug
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/debug/session/:id/events` | Raw Firestore events for a session (use this to read LLM responses) |
+| `POST` | `/debug/session/abort-all` | Abort all active sessions |
+
+**Reading an LLM response:** After `POST /session/:id/prompt` returns, poll `GET /debug/session/:id/events` until you see a `session.next.text.ended` event — the assistant's reply is in `data.text`.
+
+### Skills (Agents)
+
+Skills are named agent definitions with a system prompt. They are persisted to `lotus-code.json` under the `agents` key and loaded at next startup.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/skill` | List registered tools as skills |
+| `POST` | `/skill` | Create a new skill — see body below |
+| `DELETE` | `/skill/:name` | Remove a skill from `lotus-code.json` |
+
+**POST /skill body:**
+```json
+{
+  "name": "reviewer",
+  "system": "You are a senior code reviewer...",
+  "model": "deepseek/deepseek-chat",
+  "description": "Reviews code for correctness and style",
+  "mode": "primary"
+}
+```
+`mode` is `"primary"` (user-facing) or `"subagent"` (called by other agents). `model` is optional.
+
+### MCP Servers
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/mcp` | Live status of all configured MCP servers |
+| `POST` | `/mcp` | Add and connect a new server — persists to `lotus-code.json` |
+| `POST` | `/mcp/:name/connect` | Connect a pre-configured server |
+| `DELETE` | `/mcp/:name` | Disconnect and remove from `lotus-code.json` |
+
+**POST /mcp — local stdio server:**
+```json
+{
+  "name": "filesystem",
+  "type": "local",
+  "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+  "cwd": "/optional/working/dir",
+  "environment": { "MY_VAR": "value" },
+  "timeout": 30000
+}
+```
+
+**POST /mcp — remote SSE server:**
+```json
+{
+  "name": "my-api",
+  "type": "remote",
+  "url": "https://example.com/mcp",
+  "headers": { "Authorization": "Bearer token" },
+  "timeout": 30000
+}
+```
+
+### Agents, Commands, Projects, VCS
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/agent` | List configured agents |
+| `GET` | `/command` | List available CLI commands with descriptions |
+| `GET` | `/project` | List projects from Firestore |
+| `GET` | `/project/current` | Current working directory as a project |
+| `GET` | `/project/:id/directories` | Directories for a project |
+| `GET` | `/vcs` | Git repo info `{ type, root, branch, commit }` |
+| `GET` | `/vcs/status` | Parsed `git status --porcelain` — array of `{ file, staged, unstaged, untracked, status }` |
+| `GET` | `/vcs/diff` | Raw diff text `{ diff }` — add `?staged=true` for staged diff |
+| `GET` | `/lsp` | LSP status `{ running: false, servers: [] }` — not wired |
+| `GET` | `/formatter` | Formatter status `{ running: false, formatters: [] }` — not wired |
+| `GET` | `/permission` | Pending tool permission requests |
+| `GET` | `/question` | Pending question requests |
 
 **`ProductionLayer`** — `GcpConfig` → `FirestoreClient` + `GCSStorage` + `CloudLogger` + `GoogleIdentity` → `FirestoreModelLayer` + `SecretsModelLayer` → all controllers.
 

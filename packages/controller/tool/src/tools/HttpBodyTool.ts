@@ -1,7 +1,7 @@
 /**
  * HttpBodyTool — bounded HTTP response body collection helper.
  *
- * Ported from @opencode-ai/core tool/http-body.ts.
+ * Ported from @lotus-code/core tool/http-body.ts.
  * Logic kept identical.
  */
 export * as HttpBodyTool from "./HttpBodyTool"

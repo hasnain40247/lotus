@@ -34,6 +34,7 @@ import {
   C_BG, C_EGG, C_WHITE, C_DIM, C_MUTED, C_INPUT, C_ACCENT, C_USER_BG,
 } from "./palette"
 import * as fs from "node:fs"
+import * as os from "node:os"
 import * as pathMod from "node:path"
 import { write as clipboardWrite } from "./clipboard"
 import type { EventSource } from "./context/sdk"
@@ -42,6 +43,36 @@ import type { TuiConfig } from "./config"
 import { win32DisableProcessedInput, win32FlushInputBuffer } from "./terminal-win32"
 import { destroyRenderer } from "./util/renderer"
 import { cliErrorMessage, errorFormat } from "./util/error"
+import { filetype } from "./util/filetype"
+
+const DIFF_ADDED_SIGN = RGBA.fromHex("#22863A")
+const DIFF_REMOVED_SIGN = RGBA.fromHex("#CB2431")
+const DIFF_LINE_NUMBER_FG = RGBA.fromHex("#8A8A8A")
+const DIFF_TRANSPARENT = RGBA.fromInts(0, 0, 0, 0)
+const DIFF_SYNTAX = SyntaxStyle.fromTheme([])
+
+// Hot rose used for the block-letter wordmark, matches the landing hero's
+// centered wordmark color at t=0. Kept static so it stays visible after the
+// landing → chat transition (centerLabelColor fades to bg once transitionT=1).
+const NEKO_PINK_RGBA = RGBA.fromInts(0xE6, 0x3D, 0x8A)
+
+// Playful placeholder pool shown in the landing input while the user hasn't
+// sent their first message. One line is picked at random per app launch.
+const LANDING_PLACEHOLDERS = [
+  "what's the mission, meowster?",
+  "paws-ready. what are we building?",
+  "point me at some code, purrlease",
+  "mreowwww! whats on the agenda",
+  "purr-gramming time. where do we start?",
+  "let's chase some bugs",
+  "ready to pounce on some code",
+  "drop a task, i'll get to work",
+  "give me a task, i'm all ears",
+  "curious what we're making today",
+] as const
+
+const pickLandingPlaceholder = () =>
+  LANDING_PLACEHOLDERS[Math.floor(Math.random() * LANDING_PLACEHOLDERS.length)]!
 
 registerNekoSpinner()
 
@@ -149,8 +180,17 @@ const parseHex = (hex: string): Rgb => {
 
 const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0")
 
-const blendHex = (a: Rgb, b: Rgb, t: number) =>
-  `#${toHex(a.r + (b.r - a.r) * t)}${toHex(a.g + (b.g - a.g) * t)}${toHex(a.b + (b.b - a.b) * t)}`
+const blendRgb = (a: Rgb, b: Rgb, t: number): Rgb => ({
+  r: a.r + (b.r - a.r) * t,
+  g: a.g + (b.g - a.g) * t,
+  b: a.b + (b.b - a.b) * t,
+})
+
+const rgbToHex = (c: Rgb) => `#${toHex(c.r)}${toHex(c.g)}${toHex(c.b)}`
+
+const blendHex = (a: Rgb, b: Rgb, t: number) => rgbToHex(blendRgb(a, b, t))
+
+const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n)
 
 const SHINE_BASE = parseHex("#B8A47C")   // muted warm — most of the word
 const SHINE_PEAK = parseHex("#1A1A1A")   // near-black — the highlight
@@ -162,18 +202,75 @@ const shineColorFor = (charIndex: number, position: number) => {
   return blendHex(SHINE_BASE, SHINE_PEAK, t)
 }
 
-// Generic gaussian shine — used for the status message shimmer where the base
-// and peak colors differ per message kind.
-const shineBetween = (charIndex: number, position: number, base: Rgb, peak: Rgb, sigma = SHINE_SIGMA) => {
-  const distance = charIndex - position
-  const t = Math.exp(-(distance * distance) / (2 * sigma * sigma))
-  return blendHex(base, peak, t)
+// Status pill — renders as a rounded-left, flush-right chip inside the muted
+// band. Colors are chosen so the pill reads as a distinct chip against tan
+// PALETTE.muted, with a white shimmer sweeping the text during hold.
+const STATUS_PILL_BG_INFO  = parseHex("#5A1E44")
+const STATUS_PILL_BG_WARN  = parseHex("#8A3F27")
+const STATUS_PILL_BG_ERROR = parseHex("#801A1A")
+const STATUS_PILL_FG       = parseHex(PALETTE.egg) // match the standard body text color
+const STATUS_PILL_PEAK     = parseHex("#FFFFFF")   // white shimmer highlight
+const STATUS_BAND_BG       = parseHex(PALETTE.muted)  // color behind the rounded cap glyph
+
+// Total lifetime and phase boundaries. Cubic easing on enter/exit keeps the
+// reveal feeling smooth rather than linear-stepped.
+const STATUS_ENTER_MS = 650
+const STATUS_HOLD_MS  = 4200
+const STATUS_EXIT_MS  = 550
+const STATUS_LIFETIME_MS = STATUS_ENTER_MS + STATUS_HOLD_MS + STATUS_EXIT_MS
+const STATUS_TICK_MS = 16                          // ~60fps for the reveal / shine
+const STATUS_SHINE_SIGMA = 2.6
+const STATUS_SHINE_CHAR_MS = 60                    // per-char shine sweep speed (chars/sec ≈ 16)
+
+// Powerline U+E0BA (Nerd Font) — lower-right-triangle glyph used as a slash-
+// styled left cap. Rendered with fg=pill color, bg=band color so the pill
+// fills the lower-right of the cell with a "/" diagonal edge and the band
+// shows through the upper-left corner.
+const STATUS_CAP_LEFT = ""
+
+// Pill-colored spaces on each side of the text so the message doesn't butt
+// against the slash cap on the left or the terminal edge on the right, while
+// the pill background still runs continuously through both padding regions.
+const STATUS_PILL_PAD_LEFT  = 1
+const STATUS_PILL_PAD_RIGHT = 1
+
+type StatusKind = "info" | "warn" | "error"
+
+const statusPillBgRgb = (kind: StatusKind): Rgb =>
+  kind === "error" ? STATUS_PILL_BG_ERROR : kind === "warn" ? STATUS_PILL_BG_WARN : STATUS_PILL_BG_INFO
+
+// Cubic ease-out for the enter reveal, ease-in for the exit wipe. Returns a
+// FRACTIONAL number of visible characters — the integer part is how many
+// full-opacity cells are showing, the fractional part is the alpha of the
+// leading (leftmost) cell. Fractional reveal is what keeps the slide smooth:
+// integer stepping made the pill hop one whole cell per frame, which reads as
+// choppy no matter how high the framerate.
+const statusRevealCount = (elapsedMs: number, textLength: number): number => {
+  if (elapsedMs <= 0) return 0
+  if (elapsedMs < STATUS_ENTER_MS) {
+    const t = elapsedMs / STATUS_ENTER_MS
+    const eased = 1 - Math.pow(1 - t, 3)
+    return Math.min(textLength, eased * textLength)
+  }
+  if (elapsedMs < STATUS_ENTER_MS + STATUS_HOLD_MS) return textLength
+  const t = clamp01((elapsedMs - STATUS_ENTER_MS - STATUS_HOLD_MS) / STATUS_EXIT_MS)
+  const eased = Math.pow(t, 3)
+  return Math.max(0, (1 - eased) * textLength)
 }
 
-const STATUS_PEAK = parseHex("#FFFFFF")   // white highlight — the sweep
-const STATUS_BASE_INFO  = parseHex("#7A2E5C")
-const STATUS_BASE_WARN  = parseHex("#C05F3F")
-const STATUS_BASE_ERROR = parseHex("#B02828")
+// Per-char fg color inside the pill (before leading-edge alpha blend). Returns
+// Rgb so callers can further blend with the band background for smooth reveal.
+const statusShineColorRgb = (localIndex: number, textLength: number, elapsedMs: number): Rgb => {
+  const holdT = elapsedMs - STATUS_ENTER_MS
+  if (holdT < 0 || holdT > STATUS_HOLD_MS) return STATUS_PILL_FG
+  const sweepWidth = textLength + 8
+  const sweepPeriodMs = sweepWidth * STATUS_SHINE_CHAR_MS
+  const cyc = (holdT % sweepPeriodMs) / sweepPeriodMs
+  const shinePos = -4 + cyc * sweepWidth
+  const dist = localIndex - shinePos
+  const g = Math.exp(-(dist * dist) / (2 * STATUS_SHINE_SIGMA * STATUS_SHINE_SIGMA))
+  return blendRgb(STATUS_PILL_FG, STATUS_PILL_PEAK, g)
+}
 
 export type TuiInput = {
   url: string
@@ -412,9 +509,31 @@ function ToolRow(props: {
     const o = props.part.state?.output?.trim() ?? ""
     return o.length > 3000 ? o.slice(0, 3000) + "\n…" : o
   }
+  // For edit / apply_patch tools, the tool result carries the unified patch on
+  // metadata.diff or metadata.files[0].patch — render it as a colored diff with
+  // line numbers instead of dumping the raw ```diff-fenced output text.
+  const diffPatch = () => {
+    if (name() !== "edit" && name() !== "apply_patch") return undefined
+    const md = props.part.state?.metadata
+    if (!md || typeof md !== "object") return undefined
+    const direct = (md as { diff?: unknown }).diff
+    if (typeof direct === "string" && direct.length) return direct
+    const files = (md as { files?: unknown }).files
+    if (Array.isArray(files)) {
+      const first = files[0] as { patch?: unknown } | undefined
+      if (first && typeof first.patch === "string" && first.patch.length) return first.patch
+    }
+    return undefined
+  }
+  const diffFilePath = () => {
+    const inp = props.part.state?.input as { filePath?: unknown; path?: unknown } | undefined
+    const fp = inp?.filePath ?? inp?.path
+    return typeof fp === "string" ? fp : undefined
+  }
   const icon = () => (status() === "running" ? "~" : status() === "error" ? "✗" : "✓")
   const color = () => (status() === "error" ? RGBA.fromHex("#CC6666") : C_DIM)
-  const hasOutput = () => output() && status() !== "running"
+  const hasDiff = () => diffPatch() !== undefined && status() === "completed"
+  const hasOutput = () => (hasDiff() || Boolean(output())) && status() !== "running"
   const chevron = () => (hasOutput() ? (collapsed() ? "▶" : "▼") : " ")
 
   const subagent = () =>
@@ -440,9 +559,36 @@ function ToolRow(props: {
         />
       </Show>
       <Show when={hasOutput() && !collapsed()}>
-        <text fg={C_DIM} wrapMode="word" paddingLeft={2}>
-          {output()}
-        </text>
+        <Switch
+          fallback={
+            <text fg={C_DIM} wrapMode="word" paddingLeft={2}>
+              {output()}
+            </text>
+          }
+        >
+          <Match when={hasDiff()}>
+            <box paddingLeft={2} paddingTop={0}>
+              <diff
+                diff={diffPatch()!}
+                view="unified"
+                filetype={filetype(diffFilePath())}
+                syntaxStyle={DIFF_SYNTAX}
+                showLineNumbers={true}
+                width="100%"
+                fg={C_EGG}
+                addedBg={DIFF_TRANSPARENT}
+                removedBg={DIFF_TRANSPARENT}
+                contextBg={DIFF_TRANSPARENT}
+                addedSignColor={DIFF_ADDED_SIGN}
+                removedSignColor={DIFF_REMOVED_SIGN}
+                lineNumberFg={DIFF_LINE_NUMBER_FG}
+                lineNumberBg={DIFF_TRANSPARENT}
+                addedLineNumberBg={DIFF_TRANSPARENT}
+                removedLineNumberBg={DIFF_TRANSPARENT}
+              />
+            </box>
+          </Match>
+        </Switch>
       </Show>
     </box>
   )
@@ -599,6 +745,16 @@ function Chat() {
   const exit = useExit()
   const renderer = useRenderer()
 
+  const cwdLabel = (() => {
+    const dir = sdk.directory ?? process.cwd()
+    const home = os.homedir()
+    return dir === home
+      ? "~"
+      : dir.startsWith(home + pathMod.sep)
+        ? "~" + dir.slice(home.length)
+        : dir
+  })()
+
   const [sessionID, setSessionID] = createSignal<string | null>(null)
   const [running, setRunning] = createSignal(false)
   const [spinnerWord, setSpinnerWord] = createSignal(pickSpinnerWord())
@@ -731,6 +887,9 @@ function Chat() {
   // fades in, and a flexGrow spacer under the input collapses so the input
   // settles at the bottom of the terminal.
   const [hasStartedChat, setHasStartedChat] = createSignal(false)
+  // Picked once per Chat mount so the placeholder stays stable while the user
+  // is on the landing hero, and re-rolls on next app launch.
+  const landingPlaceholder = pickLandingPlaceholder()
   const [transitionT, setTransitionT] = createSignal(0)  // 0 = fresh, 1 = chat
   createEffect(() => {
     if (!hasStartedChat()) return
@@ -802,8 +961,10 @@ function Chat() {
       last.tokens.cache.write
     if (tot <= 0) return undefined
     const limit = modelLimits()[`${last.providerID}/${last.modelID}`]
-    if (!limit) return `${tot.toLocaleString()} tok`
-    return `${Math.round((tot / limit) * 100)}% (${tot.toLocaleString()})`
+    if (!limit) return undefined
+    const pct = Math.round((tot / limit) * 100)
+    if (pct < 80) return undefined
+    return `${pct}% (${tot.toLocaleString()})`
   }
 
   createEffect(() => {
@@ -1014,34 +1175,29 @@ function Chat() {
   }
 
   // ── Command status banner ───────────────────────────────────────────────
-  const [status, setStatus] = createSignal<{ text: string; kind: "info" | "warn" | "error" } | undefined>()
-  const [statusShine, setStatusShine] = createSignal(-4)
-  let statusTimer: ReturnType<typeof setTimeout> | undefined
-  function showStatus(text: string, kind: "info" | "warn" | "error" = "info") {
+  // The bar is time-driven: statusT tracks elapsed ms since the last showStatus
+  // call, and statusCharColor derives the per-char color for the current phase
+  // (enter reveal → shine hold → exit wipe). See STATUS_LIFETIME_MS at the top
+  // of the file for the phase timing.
+  const [status, setStatus] = createSignal<{ text: string; kind: StatusKind } | undefined>()
+  const [statusT, setStatusT] = createSignal(0)
+  let statusRaf: ReturnType<typeof setInterval> | undefined
+  function showStatus(text: string, kind: StatusKind = "info") {
     setStatus({ text, kind })
-    setStatusShine(-4)
-    if (statusTimer) clearTimeout(statusTimer)
-    statusTimer = setTimeout(() => setStatus(undefined), 3000)
+    setStatusT(0)
+    if (statusRaf) clearInterval(statusRaf)
+    const t0 = Date.now()
+    statusRaf = setInterval(() => {
+      const elapsed = Date.now() - t0
+      setStatusT(elapsed)
+      if (elapsed >= STATUS_LIFETIME_MS) {
+        if (statusRaf) clearInterval(statusRaf)
+        statusRaf = undefined
+        setStatus(undefined)
+      }
+    }, STATUS_TICK_MS)
   }
-  onCleanup(() => statusTimer && clearTimeout(statusTimer))
-
-  // Animate a highlight sweep across the status text while it's visible.
-  createEffect(() => {
-    const s = status()
-    if (!s) return
-    setStatusShine(-4)
-    const shineTimer = setInterval(() => {
-      setStatusShine((prev) => {
-        const len = s.text.length + 8
-        const next = prev + 0.6
-        return next > len ? -4 : next
-      })
-    }, 55)
-    onCleanup(() => clearInterval(shineTimer))
-  })
-
-  const statusBaseFor = (kind: "info" | "warn" | "error") =>
-    kind === "error" ? STATUS_BASE_ERROR : kind === "warn" ? STATUS_BASE_WARN : STATUS_BASE_INFO
+  onCleanup(() => statusRaf && clearInterval(statusRaf))
 
   // ── /agent modal ────────────────────────────────────────────────────────
   // Two phases:
@@ -2029,28 +2185,40 @@ function Chat() {
           </box>
         </Show>
         {/* Animated neko perched on its own dark band — sits at the top of
-            the scroll content so it scrolls away as the conversation grows. */}
+            the scroll content so it scrolls away as the conversation grows.
+            The block-letter wordmark sits at the left, both bottom-aligned so
+            they perch together on the dark band. */}
         <Show when={hasStartedChat()}>
           <box flexShrink={0} flexDirection="column">
             <box
               flexShrink={0}
               flexDirection="row"
-              justifyContent="flex-end"
+              justifyContent="space-between"
+              alignItems="flex-end"
+              paddingLeft={2}
               paddingRight={2}
               marginBottom={-1}
               zIndex={2000}
             >
+              <box flexDirection="column" flexShrink={0} marginBottom={2}>
+                <For each={nekoLabel}>
+                  {(line) => (
+                    <text fg={NEKO_PINK_RGBA} attributes={TextAttributes.BOLD}>
+                      {line}
+                    </text>
+                  )}
+                </For>
+              </box>
               <AnimatedCat />
             </box>
             <box
               height={1}
               flexDirection="row"
-              justifyContent="flex-end"
               paddingLeft={2}
               paddingRight={2}
               backgroundColor={C_MUTED}
             >
-              <text attributes={TextAttributes.BOLD} fg={C_BG}>NEKO</text>
+              <text fg={C_DIM} attributes={TextAttributes.BOLD}>{cwdLabel}</text>
             </box>
           </box>
         </Show>
@@ -2089,28 +2257,64 @@ function Chat() {
         </Show>
       </scrollbox>
 
-      {/* Divider — doubles as the status bar. Italic status messages render
-          right-aligned inside the dark-shaded band. */}
+      {/* Divider — doubles as the status bar. The status pill slides in flush
+          against the right edge of the screen, so paddingRight is 0 to let the
+          drawer effect land against the terminal boundary. */}
       <box
         height={1}
         flexDirection="row"
         justifyContent="flex-end"
         paddingLeft={2}
-        paddingRight={2}
+        paddingRight={0}
         backgroundColor={C_MUTED}
       >
         <Show when={status()}>
-          {(s) => (
-            <text attributes={TextAttributes.ITALIC | TextAttributes.BOLD}>
-              <Index each={s().text.split("")}>
-                {(ch, i) => (
-                  <span style={{ fg: shineBetween(i, statusShine(), statusBaseFor(s().kind), STATUS_PEAK) }}>
-                    {ch()}
-                  </span>
-                )}
-              </Index>
-            </text>
-          )}
+          {(s) => {
+            const pillBgRgb = () => statusPillBgRgb(s().kind)
+            // Leading pad is folded INTO the reveal cycle as prepended spaces
+            // rather than a separate always-partial cell. Otherwise both the
+            // cap and the pad would strobe from full → near-zero every time
+            // visibleCount ticks up, giving three flashing cells per step
+            // instead of two.
+            const paddedText = () => " ".repeat(STATUS_PILL_PAD_LEFT) + s().text
+            const paddedLen = () => paddedText().length
+            const revealed = () => statusRevealCount(statusT(), paddedLen())
+            const visibleCount = () => Math.ceil(revealed())
+            const visible = () => paddedText().slice(paddedLen() - visibleCount())
+            // Fractional part = alpha of the leading cell. Blending the cap +
+            // leftmost visible cell from band bg → pill color at this alpha is
+            // what turns per-cell stepping into sub-cell sliding.
+            const leadAlpha = () => {
+              const r = revealed()
+              if (r <= 0) return 0
+              const f = r - Math.floor(r)
+              return f === 0 ? 1 : f
+            }
+            const capFg = () => rgbToHex(blendRgb(STATUS_BAND_BG, pillBgRgb(), leadAlpha()))
+            const cellFg = (i: number) => {
+              const shine = statusShineColorRgb(i, visibleCount(), statusT())
+              const alpha = i === 0 ? leadAlpha() : 1
+              return rgbToHex(blendRgb(STATUS_BAND_BG, shine, alpha))
+            }
+            const cellBg = (i: number) => {
+              const alpha = i === 0 ? leadAlpha() : 1
+              return rgbToHex(blendRgb(STATUS_BAND_BG, pillBgRgb(), alpha))
+            }
+            const padBgHex = () => rgbToHex(pillBgRgb())
+            return (
+              <Show when={revealed() > 0}>
+                <text attributes={TextAttributes.ITALIC | TextAttributes.BOLD}>
+                  <span style={{ fg: capFg(), bg: rgbToHex(STATUS_BAND_BG) }}>{STATUS_CAP_LEFT}</span>
+                  <Index each={visible().split("")}>
+                    {(ch, i) => (
+                      <span style={{ fg: cellFg(i), bg: cellBg(i) }}>{ch()}</span>
+                    )}
+                  </Index>
+                  <span style={{ bg: padBgHex() }}>{" ".repeat(STATUS_PILL_PAD_RIGHT)}</span>
+                </text>
+              </Show>
+            )
+          }}
         </Show>
       </box>
 
@@ -2183,6 +2387,8 @@ function Chat() {
           cursorColor={agentColor(currentAgentName())}
           maxHeight={8}
           syntaxStyle={INPUT_SYNTAX}
+          placeholder={hasStartedChat() ? undefined : landingPlaceholder}
+          placeholderColor={C_DIM}
           onContentChange={() => { updatePaletteFromInput(); highlightMentionsInInput() }}
           onSubmit={() => {
             if (suppressNextSubmit) { suppressNextSubmit = false; return }

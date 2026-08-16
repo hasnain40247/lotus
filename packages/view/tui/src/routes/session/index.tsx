@@ -2401,17 +2401,27 @@ function Edit(props: ToolProps) {
     return ctx.width > 120 ? "split" : "unified"
   })
 
-  const ft = createMemo(() => filetype(stringValue(props.input.filePath)))
+  const filePath = createMemo(
+    () => stringValue(props.input.filePath) ?? stringValue(props.input.path),
+  )
+  const ft = createMemo(() => filetype(filePath()))
 
-  const diffContent = createMemo(() => stringValue(props.metadata.diff) ?? "")
+  const diffContent = createMemo(() => {
+    const direct = stringValue(props.metadata.diff)
+    if (direct !== undefined) return direct
+    const files = props.metadata.files
+    if (!Array.isArray(files)) return undefined
+    const first = recordValue(files[0])
+    return stringValue(first?.patch)
+  })
 
   return (
     <Switch>
-      <Match when={stringValue(props.metadata.diff) !== undefined}>
-        <BlockTool title={"← Edit " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
+      <Match when={diffContent() !== undefined}>
+        <BlockTool title={"← Edit " + pathFormatter.format(filePath())} part={props.part}>
           <box paddingLeft={1}>
             <diff
-              diff={diffContent()}
+              diff={diffContent() ?? ""}
               view={view()}
               filetype={ft()}
               syntaxStyle={syntax()}
@@ -2430,12 +2440,12 @@ function Edit(props: ToolProps) {
               removedLineNumberBg={theme.diffRemovedLineNumberBg}
             />
           </box>
-          <Diagnostics diagnostics={props.metadata.diagnostics} filePath={stringValue(props.input.filePath) ?? ""} />
+          <Diagnostics diagnostics={props.metadata.diagnostics} filePath={filePath() ?? ""} />
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool icon="←" pending="Preparing edit..." complete={stringValue(props.input.filePath)} part={props.part}>
-          Edit {pathFormatter.format(stringValue(props.input.filePath))} {input({ replaceAll: props.input.replaceAll })}
+        <InlineTool icon="←" pending="Preparing edit..." complete={filePath()} part={props.part}>
+          Edit {pathFormatter.format(filePath())} {input({ replaceAll: props.input.replaceAll })}
         </InlineTool>
       </Match>
     </Switch>

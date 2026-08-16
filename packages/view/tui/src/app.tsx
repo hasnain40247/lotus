@@ -27,11 +27,18 @@ import { AgentPalette, type AgentPaletteItem, type AgentPalettePhase } from "./c
 import { MentionPalette, MENTION_VIEWPORT } from "./component/mention-palette"
 import { McpPalette, type McpPaletteItem, type McpPalettePhase } from "./component/mcp-palette"
 import { ThemePalette, type ThemePaletteItem, type ThemeName } from "./component/theme-palette"
+import {
+  ModelsPalette,
+  type ModelsAuthPrompt,
+  type ModelsPaletteGroup,
+  type ModelsPaletteItem,
+  type ModelsPaletteRow,
+} from "./component/models-palette"
 import { nekoCells, nekoLabel, rgbHex } from "./logo"
 import { AnimatedCat } from "./component/logo"
 import {
   ACTIVE_THEME, GLOBAL_CONFIG_PATH, LIGHT_PALETTE, DARK_PALETTE, PALETTE,
-  C_BG, C_EGG, C_WHITE, C_DIM, C_MUTED, C_INPUT, C_ACCENT, C_USER_BG,
+  C_BG, C_EGG, C_WHITE, C_DIM, C_MUTED, C_INPUT, C_ACCENT, C_USER_BG, C_ACTIVE,
 } from "./palette"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -205,11 +212,22 @@ const shineColorFor = (charIndex: number, position: number) => {
 // Status pill — renders as a rounded-left, flush-right chip inside the muted
 // band. Colors are chosen so the pill reads as a distinct chip against tan
 // PALETTE.muted, with a white shimmer sweeping the text during hold.
-const STATUS_PILL_BG_INFO  = parseHex("#5A1E44")
-const STATUS_PILL_BG_WARN  = parseHex("#8A3F27")
-const STATUS_PILL_BG_ERROR = parseHex("#801A1A")
-const STATUS_PILL_FG       = parseHex(PALETTE.egg) // match the standard body text color
-const STATUS_PILL_PEAK     = parseHex("#FFFFFF")   // white shimmer highlight
+// Pill background: needs to (a) contrast against STATUS_BAND_BG (PALETTE.muted)
+// so the slash-cap glyph shows a visible diagonal, and (b) be dark enough for
+// the white shine peak to pop. Light mode uses PALETTE.dim (medium-dark brown
+// against light-beige band). Dark mode uses a hand-picked deeper warm brown
+// — darker than PALETTE.muted (#3A3835, our band bg) so the slash is visible,
+// and much darker than the white shine peak.
+const STATUS_PILL_BG_HEX   = ACTIVE_THEME === "dark" ? "#2A241C" : PALETTE.dim
+const STATUS_PILL_BG_INFO  = parseHex(STATUS_PILL_BG_HEX)
+const STATUS_PILL_BG_WARN  = parseHex(STATUS_PILL_BG_HEX)
+const STATUS_PILL_BG_ERROR = parseHex(STATUS_PILL_BG_HEX)
+// Pill text color — theme-aware so it contrasts with the (also theme-aware)
+// pill bg above. Light: near-black on brown-ish bg. Dark: light beige on
+// dark-tan bg — mirrors the "tab · next agent" hint tone. In both cases the
+// shine peaks to pure white, giving a bright white sweep across the text.
+const STATUS_PILL_FG       = parseHex(ACTIVE_THEME === "dark" ? PALETTE.egg : "#1A1A1A")
+const STATUS_PILL_PEAK     = parseHex("#FFFFFF")
 const STATUS_BAND_BG       = parseHex(PALETTE.muted)  // color behind the rounded cap glyph
 
 // Total lifetime and phase boundaries. Cubic easing on enter/exit keeps the
@@ -271,6 +289,7 @@ const statusShineColorRgb = (localIndex: number, textLength: number, elapsedMs: 
   const g = Math.exp(-(dist * dist) / (2 * STATUS_SHINE_SIGMA * STATUS_SHINE_SIGMA))
   return blendRgb(STATUS_PILL_FG, STATUS_PILL_PEAK, g)
 }
+
 
 export type TuiInput = {
   url: string
@@ -852,6 +871,13 @@ function Chat() {
     } catch {
       // Provider list is best-effort; context % just won't show a percentage.
     }
+    // Prime the "current model" indicator from neko.json so the footer + palette
+    // can label it before the user opens /models or triggers the first turn.
+    try {
+      const cfgRes = await sdk.client.config.get({}).catch(() => null)
+      const cfg = cfgRes?.data as { model?: string } | undefined
+      if (cfg && typeof cfg.model === "string") setModelsCurrentKey(cfg.model)
+    } catch { /* footer just won't show a model name until first turn */ }
   })
 
   // Turn timer: stamp on every idle→busy transition, but leave `turnStart`
@@ -965,6 +991,18 @@ function Chat() {
     const pct = Math.round((tot / limit) * 100)
     if (pct < 80) return undefined
     return `${pct}% (${tot.toLocaleString()})`
+  }
+
+  // "Current model" for the footer. Reflects user intent (config default on
+  // mount, or the last /models selection) — not what the runner may have
+  // baked into an older session. Falls back to lastAssistant only if intent
+  // is unknown (should be rare since we prime on mount).
+  const activeModelName = () => {
+    const key = modelsCurrentKey()
+    if (key) return key.includes("/") ? key.split("/")[1] : key
+    const last = lastAssistant()
+    if (last?.modelID) return last.modelID
+    return undefined
   }
 
   createEffect(() => {
@@ -1128,8 +1166,23 @@ function Chat() {
     reconcileScroll(nextIndex, matches.length)
   }
 
+  // True when a full-screen-ish modal owns the input surface — /agent, /mcp,
+  // /models, /theme, or the /models API-key auth prompt. In these states we
+  // suppress the slash and @ palettes because typing is either consumed by
+  // the modal (MCP create wizard, models auth key) or the modal is purely
+  // navigational and shouldn't stack another palette on top.
+  const anyModalOpen = () =>
+    agentModalOpen() || mcpModalOpen() || modelsModalOpen() || themeModalOpen()
+
   function updatePaletteFromInput() {
     const text = inputEl?.plainText ?? ""
+
+    // Suppress both palettes while a modal owns the input.
+    if (anyModalOpen()) {
+      if (paletteOpen()) { setPaletteOpen(false); setPaletteIndex(0); setPaletteScrollTop(0) }
+      if (mentionOpen()) closeMention()
+      return
+    }
 
     // Slash palette
     if (text.startsWith("/") && !text.includes(" ") && !text.includes("\n")) {
@@ -1386,6 +1439,208 @@ function Chat() {
     void selectTheme(item.name)
   }
 
+  // ── /models modal ───────────────────────────────────────────────────────
+  // Grouped model catalog. Add a new provider by pushing another group; the
+  // heading is rendered from `heading` and each item's `providerID/modelID`
+  // is what gets persisted to neko.json.
+  const MODEL_GROUPS: ModelsPaletteGroup[] = [
+    {
+      providerID: "deepseek",
+      heading: "deepseek",
+      items: [
+        { providerID: "deepseek", modelID: "deepseek-v4-flash", label: "deepseek-v4-flash" },
+        { providerID: "deepseek", modelID: "deepseek-v4-pro",   label: "deepseek-v4-pro" },
+      ],
+    },
+    {
+      providerID: "anthropic",
+      heading: "anthropic",
+      items: [
+        { providerID: "anthropic", modelID: "claude-opus-4-7",   label: "claude-opus-4-7" },
+        { providerID: "anthropic", modelID: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
+        { providerID: "anthropic", modelID: "claude-haiku-4-5",  label: "claude-haiku-4-5" },
+      ],
+    },
+  ]
+
+  const [modelsModalOpen, setModelsModalOpen] = createSignal(false)
+  const [modelsItemIndex, setModelsItemIndex] = createSignal(0)
+  const [modelsCurrentKey, setModelsCurrentKey] = createSignal<string | null>(null)
+  const [modelsConnected, setModelsConnected] = createSignal<ReadonlySet<string>>(new Set())
+  const [modelsAuthPrompt, setModelsAuthPrompt] = createSignal<ModelsAuthPrompt>(null)
+  // When the user picks a disconnected model, we buffer it here and re-run the
+  // selection once the API key is saved and the provider goes connected.
+  const [modelsPendingSelection, setModelsPendingSelection] = createSignal<ModelsPaletteItem | null>(null)
+
+  // Session-model auto-migration: when we switch to a session whose baked
+  // `session.model.id` is no longer in the palette catalog (e.g. an old
+  // `deepseek-chat` session after we retired that model), silently PATCH the
+  // session to the config default so the next turn uses a supported model.
+  // Skipped for sessions whose model is still in the catalog — they keep
+  // whatever they were on (respecting per-session choices like claude).
+  const migratedSessions = new Set<string>()
+  createEffect(async () => {
+    const sid = sessionID()
+    if (!sid || migratedSessions.has(sid)) return
+    migratedSessions.add(sid)
+    try {
+      const sRes = await sdk.client.session.get({ sessionID: sid }).catch(() => null)
+      const s = sRes?.data as { model?: { id?: string; providerID?: string } } | undefined
+      const currentId = s?.model?.id
+      if (!currentId) return
+      const validIds = new Set(
+        MODEL_GROUPS.flatMap((g) => g.items.map((it) => it.modelID)),
+      )
+      if (validIds.has(currentId)) return
+      // Pick the target: config default (via modelsCurrentKey) if it's a known
+      // model, otherwise the first item of the first group.
+      const keyFromConfig = modelsCurrentKey()
+      const fallback = MODEL_GROUPS[0]?.items[0]
+      let targetProvider: string | undefined
+      let targetModel: string | undefined
+      if (keyFromConfig?.includes("/")) {
+        const [p, m] = keyFromConfig.split("/")
+        if (m && validIds.has(m)) { targetProvider = p; targetModel = m }
+      }
+      if (!targetModel && fallback) {
+        targetProvider = fallback.providerID
+        targetModel = fallback.modelID
+      }
+      if (!targetProvider || !targetModel) return
+      await sdk.client.session
+        .update({ sessionID: sid, model: { id: targetModel, providerID: targetProvider } })
+        .catch(() => {})
+    } catch { /* migration is best-effort — user can still pick manually via /models */ }
+  })
+
+  const decorateItem = (it: ModelsPaletteItem): ModelsPaletteItem => ({
+    ...it,
+    current: `${it.providerID}/${it.modelID}` === modelsCurrentKey(),
+    connected: modelsConnected().has(it.providerID),
+  })
+
+  const modelsFlatItems = (): ModelsPaletteItem[] =>
+    MODEL_GROUPS.flatMap((g) => g.items.map(decorateItem))
+
+  const modelsRows = (): ModelsPaletteRow[] => {
+    const rows: ModelsPaletteRow[] = []
+    let itemIndex = 0
+    for (const group of MODEL_GROUPS) {
+      rows.push({ kind: "heading", heading: group.heading, providerID: group.providerID })
+      for (const it of group.items) {
+        rows.push({ kind: "item", itemIndex, item: decorateItem(it) })
+        itemIndex++
+      }
+    }
+    return rows
+  }
+
+  async function openModelsModal() {
+    let current: string | null = null
+    try {
+      // SDK wraps responses as `{ data, response }` — always unwrap `.data`.
+      const cfgRes = await sdk.client.config.get({}).catch(() => null)
+      const cfg = cfgRes?.data as { model?: string } | undefined
+      if (cfg && typeof cfg.model === "string") current = cfg.model
+    } catch {}
+    setModelsCurrentKey(current)
+    try {
+      const res = await sdk.client.provider.list({} as any).catch(() => null)
+      const data = res?.data as { connected?: string[] } | undefined
+      const list: string[] = Array.isArray(data?.connected)
+        ? data!.connected.filter((s): s is string => typeof s === "string")
+        : []
+      setModelsConnected(new Set<string>(list))
+    } catch {
+      setModelsConnected(new Set<string>())
+    }
+    const flat = modelsFlatItems()
+    const idx = flat.findIndex((it) => `${it.providerID}/${it.modelID}` === current)
+    setModelsItemIndex(idx >= 0 ? idx : 0)
+    setModelsModalOpen(true)
+  }
+  function closeModelsModal() { setModelsModalOpen(false) }
+
+  function moveModelsSelection(delta: number) {
+    const total = modelsFlatItems().length
+    if (total === 0) return
+    const raw = modelsItemIndex() + delta
+    const next = raw < 0 ? total - 1 : raw >= total ? 0 : raw
+    setModelsItemIndex(next)
+  }
+
+  async function selectModel(item: ModelsPaletteItem) {
+    const key = `${item.providerID}/${item.modelID}`
+    try {
+      await sdk.client.config.update({ config: { model: key } as any }).catch(() => {})
+      const sid = sessionID()
+      if (sid) {
+        await sdk.client.session
+          .update({ sessionID: sid, model: { id: item.modelID, providerID: item.providerID } })
+          .catch(() => {})
+      }
+    } catch (e) {
+      showStatus(`Failed to switch model: ${String(e)}`, "error")
+      return
+    }
+    setModelsCurrentKey(key)
+    closeModelsModal()
+    showStatus(`Model set to ${item.label}`)
+  }
+
+  function confirmModelsSelection() {
+    const item = modelsFlatItems()[modelsItemIndex()]
+    if (!item) return
+    // Route disconnected providers through the auth prompt first.
+    if (!item.connected) {
+      setModelsPendingSelection(item)
+      setModelsAuthPrompt({ providerID: item.providerID, providerLabel: item.providerID })
+      inputEl?.setText("")
+      return
+    }
+    void selectModel(item)
+  }
+
+  function cancelModelsAuthPrompt() {
+    setModelsAuthPrompt(null)
+    setModelsPendingSelection(null)
+    inputEl?.setText("")
+  }
+
+  async function submitModelsAuthKey(rawKey: string) {
+    const prompt = modelsAuthPrompt()
+    const pending = modelsPendingSelection()
+    if (!prompt || !pending) return
+    const key = rawKey.trim()
+    if (!key) {
+      showStatus("API key can't be empty", "warn")
+      return
+    }
+    try {
+      await sdk.fetch(sdk.url + "/provider/" + encodeURIComponent(prompt.providerID), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      })
+    } catch (e) {
+      showStatus(`Failed to save key: ${String(e)}`, "error")
+      return
+    }
+    // Refresh the connected set so the row's dot flips before we proceed.
+    try {
+      const res = await sdk.client.provider.list({} as any).catch(() => null)
+      const data = res?.data as { connected?: string[] } | undefined
+      const list: string[] = Array.isArray(data?.connected)
+        ? data!.connected.filter((s): s is string => typeof s === "string")
+        : []
+      setModelsConnected(new Set<string>(list))
+    } catch {}
+    setModelsAuthPrompt(null)
+    setModelsPendingSelection(null)
+    inputEl?.setText("")
+    await selectModel(pending)
+  }
+
   // ── /mcp modal ──────────────────────────────────────────────────────────
   const [mcpModalPhase, setMcpModalPhase] = createSignal<McpPalettePhase | null>(null)
   const mcpModalOpen = () => mcpModalPhase() !== null
@@ -1611,19 +1866,64 @@ function Chat() {
     return lines.join("\n").trim()
   }
 
+  // Resolve the model that a fresh session should be created with. Uses the
+  // user's current intent (last /models selection or config default primed on
+  // mount), falling back to the palette's first entry so we never send the
+  // retired `deepseek-chat` ID.
+  function defaultSessionModel(): { providerID: string; id: string } {
+    const key = modelsCurrentKey()
+    if (key?.includes("/")) {
+      const [providerID, id] = key.split("/")
+      if (providerID && id) return { providerID, id }
+    }
+    const fallback = MODEL_GROUPS[0]?.items[0]
+    return fallback
+      ? { providerID: fallback.providerID, id: fallback.modelID }
+      : { providerID: "deepseek", id: "deepseek-v4-flash" }
+  }
+
   async function ensureSessionID(): Promise<string | null> {
     const existing = sessionID()
     if (existing) return existing
     const res = await sdk.client.session
       .create({
         agent: currentAgentName(),
-        model: { providerID: "deepseek", id: "deepseek-chat" },
+        model: defaultSessionModel(),
       })
       .catch(() => null)
     const sid = res?.data?.id
     if (!sid) return null
     setSessionID(sid)
     return sid
+  }
+
+  async function clearSession() {
+    const res = await sdk.client.session
+      .create({
+        agent: currentAgentName(),
+        model: defaultSessionModel(),
+      })
+      .catch(() => null)
+    const sid = res?.data?.id
+    if (!sid) {
+      showStatus("Failed to start a new session", "error")
+      return
+    }
+    // Wipe local view state before switching so no stale messages flash.
+    setStore({
+      msgOrder: [],
+      msgs: {},
+      partOrder: {},
+      parts: {},
+      subagents: {},
+      subagentByChildSid: {},
+    })
+    setLastAssistant(undefined)
+    // Reset the turn-timer signals too — otherwise the "3s · N tok" line
+    // from the previous session lingers below the input until the next turn.
+    setTurnStart(undefined)
+    setSessionID(sid)
+    showStatus("Started a fresh session")
   }
 
   // Actual command execution — called from palette Enter, and as a two-step
@@ -1695,6 +1995,14 @@ function Chat() {
         openThemeModal()
         return
       }
+      case "models": {
+        void openModelsModal()
+        return
+      }
+      case "clear": {
+        void clearSession()
+        return
+      }
       default:
         showStatus(`/${name} isn't wired up in this UI yet`, "warn")
     }
@@ -1712,6 +2020,22 @@ function Chat() {
         if (key.name === "up") { moveThemeSelection(-1); key.preventDefault(); return }
         if (key.name === "down") { moveThemeSelection(1); key.preventDefault(); return }
         if (key.name === "return") { confirmThemeSelection(); key.preventDefault(); return }
+        return
+      }
+
+      // Models modal open: navigate + select. When the auth prompt is active,
+      // let typing flow through to the input textarea; only intercept escape
+      // (cancel) and return (submit via submit()).
+      if (modelsModalOpen()) {
+        if (modelsAuthPrompt()) {
+          if (key.name === "escape") { cancelModelsAuthPrompt(); key.preventDefault(); return }
+          // Enter is handled by submit() below (via the normal input path).
+          return
+        }
+        if (key.name === "escape") { closeModelsModal(); key.preventDefault(); return }
+        if (key.name === "up") { moveModelsSelection(-1); key.preventDefault(); return }
+        if (key.name === "down") { moveModelsSelection(1); key.preventDefault(); return }
+        if (key.name === "return") { confirmModelsSelection(); key.preventDefault(); return }
         return
       }
 
@@ -2033,6 +2357,16 @@ function Chat() {
   async function submit() {
     const text = inputEl?.plainText?.trim() ?? ""
     if (running()) return
+
+    // Models palette auth prompt: submit the typed key rather than treating it
+    // as a chat message. Runs before the generic "empty input" bail so users
+    // can't accidentally send an empty prompt to the LLM while the key entry
+    // is focused.
+    if (modelsAuthPrompt()) {
+      await submitModelsAuthKey(text)
+      return
+    }
+
     // Empty input is allowed for wizard steps that accept blanks (mcp "env",
     // agent "mode" defaults). Only bail early on empty text when NO wizard is
     // active, since the actual prompt path can't send an empty message.
@@ -2291,14 +2625,17 @@ function Chat() {
               return f === 0 ? 1 : f
             }
             const capFg = () => rgbToHex(blendRgb(STATUS_BAND_BG, pillBgRgb(), leadAlpha()))
-            const cellFg = (i: number) => {
-              const shine = statusShineColorRgb(i, visibleCount(), statusT())
-              const alpha = i === 0 ? leadAlpha() : 1
+            // Pure helpers — all signal reads happen at the JSX call site
+            // (below) so SolidJS's per-prop reactive tracking follows every
+            // tick of statusT, not just once when the span was created.
+            const cellFgPure = (i: number, ms: number, vc: number, lead: number, count: number) => {
+              const shine = statusShineColorRgb(i, count, ms)
+              const alpha = i === 0 ? lead : 1
               return rgbToHex(blendRgb(STATUS_BAND_BG, shine, alpha))
             }
-            const cellBg = (i: number) => {
-              const alpha = i === 0 ? leadAlpha() : 1
-              return rgbToHex(blendRgb(STATUS_BAND_BG, pillBgRgb(), alpha))
+            const cellBgPure = (i: number, lead: number, bg: Rgb) => {
+              const alpha = i === 0 ? lead : 1
+              return rgbToHex(blendRgb(STATUS_BAND_BG, bg, alpha))
             }
             const padBgHex = () => rgbToHex(pillBgRgb())
             return (
@@ -2307,7 +2644,14 @@ function Chat() {
                   <span style={{ fg: capFg(), bg: rgbToHex(STATUS_BAND_BG) }}>{STATUS_CAP_LEFT}</span>
                   <Index each={visible().split("")}>
                     {(ch, i) => (
-                      <span style={{ fg: cellFg(i), bg: cellBg(i) }}>{ch()}</span>
+                      <span
+                        style={{
+                          fg: cellFgPure(i, statusT(), visibleCount(), leadAlpha(), visibleCount()),
+                          bg: cellBgPure(i, leadAlpha(), pillBgRgb()),
+                        }}
+                      >
+                        {ch()}
+                      </span>
                     )}
                   </Index>
                   <span style={{ bg: padBgHex() }}>{" ".repeat(STATUS_PILL_PAD_RIGHT)}</span>
@@ -2350,6 +2694,21 @@ function Chat() {
         dim={() => C_DIM}
         selBg={() => C_USER_BG}
         accent={() => C_ACCENT}
+      />
+
+      {/* Models modal (opens on /models) */}
+      <ModelsPalette
+        visible={modelsModalOpen}
+        rows={modelsRows}
+        itemIndex={modelsItemIndex}
+        authPrompt={modelsAuthPrompt}
+        bg={() => C_INPUT}
+        border={() => C_MUTED}
+        text={() => C_EGG}
+        dim={() => C_DIM}
+        selBg={() => C_USER_BG}
+        accent={() => C_ACCENT}
+        active={() => C_ACTIVE}
       />
 
       {/* @ mention palette (appears when typing @<query> in the input) */}
@@ -2438,9 +2797,15 @@ function Chat() {
               {agents().length > 1 ? "tab · next agent" : ""}
             </text>
           </box>
-          <Show when={contextUsage()}>
-            <text fg={C_DIM}>{contextUsage()}</text>
-          </Show>
+          <box flexDirection="row">
+            <Show when={activeModelName()}>
+              <text fg={C_ACTIVE}>{"● "}</text>
+              <text fg={C_DIM}>{activeModelName()}</text>
+            </Show>
+            <Show when={contextUsage()}>
+              <text fg={C_DIM}>{"   " + contextUsage()}</text>
+            </Show>
+          </box>
         </box>
       </Show>
     </box>

@@ -376,8 +376,8 @@ export class NekoClient {
           return self.fetch<unknown>("POST", `/session/${params.sessionID}/revert/clear`, { query: self.q(params), ...opts })
         },
       },
-      update(params: { sessionID: string; directory?: string; workspace?: string; title?: string; agent?: string }, opts: RequestOptions = {}) {
-        return self.fetch<Session>("PATCH", `/session/${params.sessionID}`, { query: self.q(params), body: { title: params.title, agent: params.agent }, ...opts })
+      update(params: { sessionID: string; directory?: string; workspace?: string; title?: string; agent?: string; model?: { id: string; providerID: string } }, opts: RequestOptions = {}) {
+        return self.fetch<Session>("PATCH", `/session/${params.sessionID}`, { query: self.q(params), body: { title: params.title, agent: params.agent, model: params.model }, ...opts })
       },
       summarize(params: { sessionID: string; directory?: string; workspace?: string; modelID?: string; providerID?: string }, opts: RequestOptions = {}) {
         return self.fetch<unknown>("POST", `/session/${params.sessionID}/summarize`, { query: self.q(params), body: { modelID: params.modelID, providerID: params.providerID }, ...opts })

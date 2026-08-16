@@ -25,7 +25,10 @@
   },
   "dependencies": {
     "effect": "catalog:",
-    "@gco/schema": "workspace:*"
+    "@gco/schema": "workspace:*",
+    "ai": "^7.0.66",
+    "@ai-sdk/anthropic": "^4.0.39",
+    "@ai-sdk/deepseek": "^3.0.28"
   },
   "devDependencies": {
     "@tsconfig/bun": "^1.0.7",

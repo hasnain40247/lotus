@@ -1647,16 +1647,51 @@ The conversation you see already contains tool calls and their results. Write a 
         ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : []),
       ]
 
+      // Load the current subagent catalog so we can inject the available
+      // `subagent_type` values into the `agent` tool's schema below. Without
+      // this, stricter providers (Claude) don't know what values are valid
+      // and refuse to call the tool — DeepSeek gets away with guessing.
+      const allAgents = yield* agentController.all()
+      const subagents = allAgents.filter(
+        (a) => !a.hidden && (a.mode === "subagent" || a.mode === "all"),
+      )
+
       // Build tool definitions — built-ins first, then MCP tools.
       const builtinDefs =
-        toolMaterialization?.definitions.map(
-          (d) =>
-            new ToolDefinition({
+        toolMaterialization?.definitions.map((d) => {
+          if (d.name === "agent" && subagents.length > 0) {
+            const listing = subagents
+              .map((a) => `- \`${a.id}\`: ${a.description ?? "(no description)"}`)
+              .join("\n")
+            const enrichedDescription =
+              d.description +
+              `\n\nAvailable \`subagent_type\` values:\n${listing}`
+            const inputSchema = d.inputSchema as { properties?: Record<string, any> }
+            const enrichedSchema =
+              inputSchema?.properties?.subagent_type
+                ? {
+                    ...inputSchema,
+                    properties: {
+                      ...inputSchema.properties,
+                      subagent_type: {
+                        ...inputSchema.properties.subagent_type,
+                        enum: subagents.map((a) => a.id),
+                      },
+                    },
+                  }
+                : inputSchema
+            return new ToolDefinition({
               name: d.name,
-              description: d.description,
-              inputSchema: d.inputSchema as any,
-            }),
-        ) ?? []
+              description: enrichedDescription,
+              inputSchema: enrichedSchema as any,
+            })
+          }
+          return new ToolDefinition({
+            name: d.name,
+            description: d.description,
+            inputSchema: d.inputSchema as any,
+          })
+        }) ?? []
       const mcpDefs = Object.entries(mcpTools).map(
         ([wrappedName, entry]) =>
           new ToolDefinition({

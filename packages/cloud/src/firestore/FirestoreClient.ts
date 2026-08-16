@@ -15,7 +15,11 @@ export class FirestoreClient extends Context.Service<FirestoreClient, FirestoreC
     FirestoreClient,
     Effect.gen(function* () {
       const config = yield* GcpConfig
-      const db = new Firestore({ projectId: config.projectId })
+      // ignoreUndefinedProperties: LLM stream events routinely include
+      // provider metadata (e.g. anthropic.caller.toolId) that may be undefined
+      // for tool calls the model hasn't fully specified yet. Without this,
+      // Firestore rejects the whole event write and the turn fails.
+      const db = new Firestore({ projectId: config.projectId, ignoreUndefinedProperties: true })
       return { db }
     }),
   )

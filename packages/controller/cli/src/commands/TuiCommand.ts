@@ -214,7 +214,7 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
             projectID,
             title: `Fork of ${(parent as any).title ?? sid}`,
             agent: (parent as any).agent,
-            model: (parent as any).model ?? { id: "deepseek-chat", providerID: "deepseek" },
+            model: (parent as any).model ?? { id: "deepseek-v4-flash", providerID: "deepseek" },
             location: { directory: (parent as any).location?.directory ?? cwd },
           })).catch(() => null)
         },
@@ -343,6 +343,16 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
           }
           if (providerID === "deepseek")  process.env.DEEPSEEK_API_KEY  = key
           if (providerID === "anthropic") process.env.ANTHROPIC_API_KEY = key
+          // Persist to neko.json so the key survives restarts — the startup
+          // path in this same file (line ~155) reads `provider.<id>.apiKey`
+          // and re-hydrates the env var.
+          try {
+            const cfgPath = path.join(directory, "neko.json")
+            const file = Bun.file(cfgPath)
+            const existing = await file.exists() ? await file.json().catch(() => ({})) : {}
+            existing.provider = { ...(existing.provider ?? {}), [providerID]: { ...(existing.provider?.[providerID] ?? {}), apiKey: key } }
+            await Bun.write(cfgPath, JSON.stringify(existing, null, 2) + "\n")
+          } catch { /* best effort — env + credRepo already hold it for this run */ }
         },
 
         listQuestions:  (sessionID) => Promise.resolve(questionStore.list(sessionID)),
@@ -358,7 +368,7 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         directory: cwd,
         args: {
           agent:  args.agent,
-          model:  args.model ?? "deepseek/deepseek-chat",
+          model:  args.model ?? "deepseek/deepseek-v4-flash",
           prompt,
           auto:   autoApprove,
         },

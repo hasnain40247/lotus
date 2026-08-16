@@ -70,6 +70,11 @@ export const C_INPUT   = RGBA.fromHex(PALETTE.input)
 export const C_ACCENT  = RGBA.fromHex(PALETTE.accent)
 export const C_USER_BG = RGBA.fromHex(PALETTE.userBg)
 
+// Semantic "on / active" indicator — used for the active model dot in /models.
+// Kept a single fixed green (rather than theme-varied) so users read it as
+// unambiguously "on" in either light or dark mode.
+export const C_ACTIVE = RGBA.fromHex("#22c55e")
+
 // Overlay aliases — same visual role, semantic names used by palette components.
 export const C_OVERLAY_BG      = C_INPUT     // panel background
 export const C_OVERLAY_BORDER  = C_MUTED     // panel border

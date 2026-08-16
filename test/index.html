@@ -10,6 +10,11 @@
             --text-color: #333;
             --card-bg: #ffffff;
             --card-shadow: rgba(0, 0, 0, 0.1);
+            --primary: #2c3e50;
+            --accent: #3498db;
+            --price-color: #e74c3c;
+            --button-bg: #2ecc71;
+            --button-hover: #27ae60;
         }
 
         body.dark-mode {
@@ -17,6 +22,30 @@
             --text-color: #e0e0e0;
             --card-bg: #262626;
             --card-shadow: rgba(0, 0, 0, 0.5);
+        }
+
+        body.midnight-mode {
+            --bg-color: #0d1b2a;
+            --text-color: #e0e1dd;
+            --card-bg: #1b263b;
+            --card-shadow: rgba(0, 0, 0, 0.6);
+            --primary: #1b263b;
+            --accent: #778da9;
+            --price-color: #ffb703;
+            --button-bg: #415a77;
+            --button-hover: #778da9;
+        }
+
+        body.solar-mode {
+            --bg-color: #fff8e1;
+            --text-color: #4e342e;
+            --card-bg: #ffffff;
+            --card-shadow: rgba(180, 120, 30, 0.15);
+            --primary: #6d4c41;
+            --accent: #ef6c00;
+            --price-color: #d84315;
+            --button-bg: #558b2f;
+            --button-hover: #33691e;
         }
 
         * {
@@ -33,7 +62,7 @@
         }
 
         header {
-            background-color: #2c3e50;
+            background-color: var(--primary);
             color: white;
             padding: 1rem 2rem;
             display: flex;
@@ -61,6 +90,26 @@
             background-color: rgba(255, 255, 255, 0.1);
         }
 
+        .palette-label {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.85rem;
+            margin-right: 0.4rem;
+        }
+
+        .palette-select {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            color: white;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .palette-select option {
+            color: #333;
+        }
+
         nav a {
             color: white;
             text-decoration: none;
@@ -73,7 +122,7 @@
         }
 
         .banner {
-            background: linear-gradient(135deg, #3498db, #2980b9);
+            background: linear-gradient(135deg, var(--accent), #2980b9);
             color: white;
             text-align: center;
             padding: 3rem 1rem;
@@ -138,16 +187,21 @@
             color: #aaa;
         }
 
+        body.midnight-mode .product-info p,
+        body.solar-mode .product-info p {
+            color: var(--text-color);
+        }
+
         .price {
             font-size: 1.2rem;
             font-weight: bold;
-            color: #e74c3c;
+            color: var(--price-color);
             margin-bottom: 0.75rem;
         }
 
         .add-to-cart {
             width: 100%;
-            background-color: #2ecc71;
+            background-color: var(--button-bg);
             color: white;
             border: none;
             padding: 0.6rem;
@@ -158,11 +212,11 @@
         }
 
         .add-to-cart:hover {
-            background-color: #27ae60;
+            background-color: var(--button-hover);
         }
 
         footer {
-            background-color: #2c3e50;
+            background-color: var(--primary);
             color: white;
             text-align: center;
             padding: 1.5rem;
@@ -179,6 +233,15 @@
             <a href="#">Cart</a>
             <a href="#">Contact</a>
         </nav>
+        <div>
+            <label for="palette" class="palette-label">Palette</label>
+            <select id="palette" class="palette-select">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="midnight">Midnight</option>
+                <option value="solar">Solar</option>
+            </select>
+        </div>
         <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">Dark Mode</button>
     </header>
 
@@ -253,21 +316,49 @@
     <script>
         const toggle = document.getElementById('theme-toggle');
         const body = document.body;
+        const palette = document.getElementById('palette');
+
+        const MODE_CLASSES = {
+            dark: 'dark-mode',
+            midnight: 'midnight-mode',
+            solar: 'solar-mode'
+        };
+
+        function applyMode(mode) {
+            body.classList.remove('dark-mode', 'midnight-mode', 'solar-mode');
+            if (mode !== 'light' && MODE_CLASSES[mode]) {
+                body.classList.add(MODE_CLASSES[mode]);
+            }
+            palette.value = mode;
+            updateButton();
+        }
 
         // Restore saved preference or fall back to system preference
         const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            body.classList.add('dark-mode');
+        let mode = savedTheme;
+        if (mode === 'light' || MODE_CLASSES[mode]) {
+            applyMode(mode);
+        } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            applyMode('dark');
+        } else {
+            applyMode('light');
         }
 
         function updateButton() {
-            toggle.textContent = body.classList.contains('dark-mode') ? 'Light Mode' : 'Dark Mode';
+            const active = Object.keys(MODE_CLASSES).find(m => body.classList.contains(MODE_CLASSES[m])) || 'light';
+            toggle.textContent = active === 'light' ? 'Dark Mode' : 'Light Mode';
         }
 
         toggle.addEventListener('click', () => {
-            body.classList.toggle('dark-mode');
-            localStorage.setItem('theme', body.classList.contains('dark-mode') ? 'dark' : 'light');
-            updateButton();
+            const active = Object.keys(MODE_CLASSES).find(m => body.classList.contains(MODE_CLASSES[m])) || 'light';
+            const next = active === 'light' ? 'dark' : 'light';
+            applyMode(next);
+            localStorage.setItem('theme', next);
+        });
+
+        palette.addEventListener('change', () => {
+            applyMode(palette.value);
+            localStorage.setItem('theme', palette.value);
         });
 
         updateButton();

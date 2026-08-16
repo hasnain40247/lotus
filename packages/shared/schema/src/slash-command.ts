@@ -25,4 +25,6 @@ export const registry: readonly Info[] = [
   { name: "agent",      description: "Create a new agent" },
   { name: "mcp",        description: "Manage MCP servers" },
   { name: "theme",      description: "Switch between light and dark themes" },
+  { name: "models",     description: "Switch the active model" },
+  { name: "clear",      description: "Start a fresh session (clears context and history)" },
 ]

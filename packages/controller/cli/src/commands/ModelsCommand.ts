@@ -89,24 +89,24 @@ const KNOWN_MODELS: ModelInfo[] = [
   },
   // DeepSeek
   {
-    id: "deepseek-chat",
+    id: "deepseek-v4-flash",
     providerID: "deepseek",
-    name: "DeepSeek Chat",
+    name: "DeepSeek V4 Flash",
     status: "active",
     enabled: true,
     contextWindow: 64000,
-    costInputPer1k: 0.00027,
-    costOutputPer1k: 0.0011,
+    costInputPer1k: 0,
+    costOutputPer1k: 0,
   },
   {
-    id: "deepseek-reasoner",
+    id: "deepseek-v4-pro",
     providerID: "deepseek",
-    name: "DeepSeek Reasoner",
+    name: "DeepSeek V4 Pro",
     status: "active",
     enabled: true,
     contextWindow: 64000,
-    costInputPer1k: 0.00055,
-    costOutputPer1k: 0.00219,
+    costInputPer1k: 0,
+    costOutputPer1k: 0,
   },
   // Ollama (local, no cost)
   {

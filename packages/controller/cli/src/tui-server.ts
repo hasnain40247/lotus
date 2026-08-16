@@ -9,6 +9,7 @@
 
 import type { Server } from "bun"
 import { execSync } from "node:child_process"
+import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { SlashCommand } from "@gco/schema"
@@ -35,7 +36,7 @@ export interface TuiServerServices {
   readonly loadEvents: (sessionID: string) => Promise<any[]>
   readonly archiveSession: (sessionID: string) => Promise<void>
   readonly abortSession: (sessionID: string) => Promise<void>
-  readonly updateSession: (sessionID: string, patch: { title?: string; agent?: string }) => Promise<any>
+  readonly updateSession: (sessionID: string, patch: { title?: string; agent?: string; model?: { id: string; providerID: string } }) => Promise<any>
   readonly forkSession: (sessionID: string, opts?: { messageID?: string; partID?: string }) => Promise<any>
   readonly revertSession: (sessionID: string, messageID: string) => Promise<void>
   readonly listAgents: () => Promise<any[]>
@@ -214,11 +215,11 @@ function buildOpenApiSpec(port: number): object {
       "/config": {
         get: {
           tags: ["Health & Config"], summary: "Get config",
-          responses: { "200": { description: "Current config", content: { "application/json": { schema: { type: "object", properties: { model: { type: "string", example: "deepseek/deepseek-chat" } } } } } } },
+          responses: { "200": { description: "Current config", content: { "application/json": { schema: { type: "object", properties: { model: { type: "string", example: "deepseek/deepseek-v4-flash" } } } } } } },
         },
         patch: {
           tags: ["Health & Config"], summary: "Update config (persists model to neko.json)",
-          requestBody: { content: { "application/json": { schema: { type: "object", properties: { model: { type: "string", example: "deepseek/deepseek-chat" } } } } } },
+          requestBody: { content: { "application/json": { schema: { type: "object", properties: { model: { type: "string", example: "deepseek/deepseek-v4-flash" } } } } } },
           responses: { "200": { description: "Merged config" } },
         },
       },
@@ -246,7 +247,7 @@ function buildOpenApiSpec(port: number): object {
                   properties: {
                     title: { type: "string" },
                     agent: { type: "string", example: "build" },
-                    model: { type: "object", properties: { id: { type: "string", example: "deepseek-chat" }, providerID: { type: "string", example: "deepseek" } } },
+                    model: { type: "object", properties: { id: { type: "string", example: "deepseek-v4-flash" }, providerID: { type: "string", example: "deepseek" } } },
                     directory: { type: "string" },
                   },
                 },
@@ -512,7 +513,7 @@ function sessionToSDK(info: any): object {
     tokens: info.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     model: info.model
       ? { id: info.model.id, providerID: (info.model as any).providerID ?? "deepseek" }
-      : { id: "deepseek-chat", providerID: "deepseek" },
+      : { id: "deepseek-v4-flash", providerID: "deepseek" },
     time: {
       created: toMs(info.time?.created),
       updated: toMs(info.time?.updated),
@@ -530,23 +531,16 @@ function deepseekProvider(): object {
     key: connected ? "***" : undefined,
     options: {},
     models: {
-      "deepseek-chat": {
-        id: "deepseek-chat",
-        name: "DeepSeek Chat",
+      "deepseek-v4-flash": {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
         release: "2025",
         context: 65536,
         limit: { context: 65536, output: 8192 },
       },
-      "deepseek-coder": {
-        id: "deepseek-coder",
-        name: "DeepSeek Coder",
-        release: "2025",
-        context: 65536,
-        limit: { context: 65536, output: 8192 },
-      },
-      "deepseek-reasoner": {
-        id: "deepseek-reasoner",
-        name: "DeepSeek Reasoner (R1)",
+      "deepseek-v4-pro": {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
         release: "2025",
         context: 65536,
         limit: { context: 65536, output: 8192 },
@@ -565,10 +559,9 @@ function anthropicProvider(): object {
     key: connected ? "***" : undefined,
     options: {},
     models: {
-      "claude-opus-4":     { id: "claude-opus-4",     name: "Claude Opus 4",     release: "2025", context: 200000, limit: { context: 200000, output: 32000 } },
-      "claude-sonnet-4":   { id: "claude-sonnet-4",   name: "Claude Sonnet 4",   release: "2025", context: 200000, limit: { context: 200000, output: 16000 } },
-      "claude-haiku-4":    { id: "claude-haiku-4",    name: "Claude Haiku 4",    release: "2025", context: 200000, limit: { context: 200000, output: 8000  } },
-      "claude-3-5-sonnet": { id: "claude-3-5-sonnet", name: "Claude 3.5 Sonnet", release: "2024", context: 200000, limit: { context: 200000, output: 8192  } },
+      "claude-opus-4-7":   { id: "claude-opus-4-7",   name: "Claude Opus 4.7",   release: "2026", context: 200000, limit: { context: 200000, output: 32000 } },
+      "claude-sonnet-4-6": { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", release: "2026", context: 200000, limit: { context: 200000, output: 16000 } },
+      "claude-haiku-4-5":  { id: "claude-haiku-4-5",  name: "Claude Haiku 4.5",  release: "2025", context: 200000, limit: { context: 200000, output: 8000  } },
     },
   }
 }
@@ -600,7 +593,7 @@ function providerListResponse(connectedIntegrations: string[] = []): object {
   return {
     all,
     providers: all,
-    default: { deepseek: "deepseek-chat", anthropic: "claude-sonnet-4" },
+    default: { deepseek: "deepseek-v4-flash", anthropic: "claude-sonnet-4" },
     connected,
   }
 }
@@ -1175,7 +1168,7 @@ function handleRequest(
 
   // ── Config ────────────────────────────────────────────────────────────────
   if ((pathname === "/config" || pathname === "/global/config") && method === "GET")
-    return json({ model: "deepseek/deepseek-chat", ...configOverride })
+    return json({ model: "deepseek/deepseek-v4-flash", ...configOverride })
 
   if ((pathname === "/config" || pathname === "/global/config") && method === "PATCH") {
     return (async () => {
@@ -1193,7 +1186,7 @@ function handleRequest(
           } catch { /* non-fatal */ }
         }
       } catch { /* malformed body */ }
-      return json({ model: "deepseek/deepseek-chat", ...configOverride })
+      return json({ model: "deepseek/deepseek-v4-flash", ...configOverride })
     })()
   }
 
@@ -1419,7 +1412,7 @@ function handleRequest(
         projectID,
         title: body.title,
         agent: body.agent,
-        model: body.model ?? { id: "deepseek-chat", providerID: "deepseek", variant: undefined },
+        model: body.model ?? { id: "deepseek-v4-flash", providerID: "deepseek", variant: undefined },
         location: { directory: body.directory ?? directory },
       })
       const sdkSession = sessionToSDK(session)
@@ -1532,9 +1525,12 @@ function handleRequest(
     return (async () => {
       let body: any = {}
       try { body = await req.json() } catch {}
-      const patch: { title?: string; agent?: string } = {}
+      const patch: { title?: string; agent?: string; model?: { id: string; providerID: string } } = {}
       if (typeof body.title === "string") patch.title = body.title
       if (typeof body.agent === "string") patch.agent = body.agent
+      if (body.model && typeof body.model === "object" && typeof body.model.id === "string" && typeof body.model.providerID === "string") {
+        patch.model = { id: body.model.id, providerID: body.model.providerID }
+      }
       const updated = await services.updateSession(sessionID, patch).catch(() => null)
       if (!updated) return json({ error: "Not found" }, 404)
       const sdkSession = sessionToSDK(updated)
@@ -1934,6 +1930,22 @@ const DEFAULT_PORT = 60100
 export function startTuiServer(directory: string, services: TuiServerServices): Server<undefined> {
   const port = Number(process.env.NEKO_SERVER_PORT ?? DEFAULT_PORT)
   let serverPort = port
+
+  // Hydrate configOverride from neko.json so GET /config returns the
+  // persisted model on cold start. Without this, the /models palette can't
+  // highlight which model is active until the user does a PATCH.
+  try {
+    const cfgPath = path.join(directory, "neko.json")
+    const raw = fs.readFileSync(cfgPath, "utf8")
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (typeof parsed.model === "string") {
+      // Normalize bare model IDs (e.g. "deepseek-v4-flash") to `provider/model`
+      // format so the palette's current-key comparison matches.
+      const m = parsed.model.includes("/") ? parsed.model : `deepseek/${parsed.model}`
+      configOverride.model = m
+    }
+  } catch { /* neko.json missing or unreadable — fall back to hardcoded default */ }
+
   const server = Bun.serve({
     port,
     idleTimeout: 0,

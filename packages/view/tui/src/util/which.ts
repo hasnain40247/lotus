@@ -2,8 +2,8 @@ import whichPkg from "which"
 import path from "path"
 import os from "os"
 
-// Local bin directory for lotus-code binaries
-const localBin = path.join(os.homedir(), ".local", "share", "lotus-code", "bin")
+// Local bin directory for neko binaries
+const localBin = path.join(os.homedir(), ".local", "share", "neko", "bin")
 
 export function which(cmd: string, env?: NodeJS.ProcessEnv) {
   const base = env?.PATH ?? env?.Path ?? process.env.PATH ?? process.env.Path ?? ""

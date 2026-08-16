@@ -17,15 +17,15 @@ import { useBindings } from "../keymap"
 import { useClipboard } from "../context/clipboard"
 
 const PROVIDER_PRIORITY: Record<string, number> = {
-  "lotus-code": 0,
-  "lotus-code-go": 1,
+  "neko": 0,
+  "neko-go": 1,
   openai: 2,
   "github-copilot": 3,
   anthropic: 4,
   google: 5,
 }
 
-const CUSTOM_PROVIDER_OPTION_VALUE = "__lotus-code_custom_provider__"
+const CUSTOM_PROVIDER_OPTION_VALUE = "__neko_custom_provider__"
 const CUSTOM_PROVIDER_ID = /^[a-z0-9][a-z0-9-_]*$/
 
 type ProviderOptionBase = {
@@ -59,10 +59,10 @@ export function providerOptions(list: { id: string; name: string }[]): ProviderO
         value: provider.id,
         providerID: provider.id,
         description: {
-          "lotus-code": "(Recommended)",
+          "neko": "(Recommended)",
           anthropic: "(API key)",
           openai: "(ChatGPT Plus/Pro or API key)",
-          "lotus-code-go": "Low cost subscription for everyone",
+          "neko-go": "Low cost subscription for everyone",
         }[provider.id],
         category: provider.id in PROVIDER_PRIORITY ? "Popular" : "Providers",
       })),
@@ -96,7 +96,7 @@ export function createDialogProviderOptions() {
       placeholder: "Provider id",
       description: () => (
         <text fg={theme.textMuted}>
-          This only stores a credential. Configure the provider in lotus-code.json to use it.
+          This only stores a credential. Configure the provider in neko.json to use it.
         </text>
       ),
     })
@@ -368,25 +368,25 @@ function ApiMethod(props: ApiMethodProps) {
       placeholder="API key"
       description={
         {
-          "lotus-code": (
+          "neko": (
             <box gap={1}>
               <text fg={theme.textMuted}>
-                Lotus Code Zen gives you access to all the best coding models at the cheapest prices with a single API
+                Neko Code Zen gives you access to all the best coding models at the cheapest prices with a single API
                 key.
               </text>
               <text fg={theme.text}>
-                Go to <span style={{ fg: theme.primary }}>https://lotus-code.ai/zen</span> to get a key
+                Go to <span style={{ fg: theme.primary }}>https://neko.ai/zen</span> to get a key
               </text>
             </box>
           ),
-          "lotus-code-go": (
+          "neko-go": (
             <box gap={1}>
               <text fg={theme.textMuted}>
-                Lotus Code Go is a $10 per month subscription that provides reliable access to popular open coding models
+                Neko Code Go is a $10 per month subscription that provides reliable access to popular open coding models
                 with generous usage limits.
               </text>
               <text fg={theme.text}>
-                Go to <span style={{ fg: theme.primary }}>https://lotus-code.ai/go</span> and enable Lotus Code Go
+                Go to <span style={{ fg: theme.primary }}>https://neko.ai/go</span> and enable Neko Code Go
               </text>
             </box>
           ),
@@ -407,7 +407,7 @@ function ApiMethod(props: ApiMethodProps) {
         if (props.custom && !sync.data.provider_next.all.some((provider) => provider.id === props.providerID)) {
           toast.show({
             variant: "info",
-            message: `Saved credential for ${props.providerID}. Configure it in lotus-code.json to use it.`,
+            message: `Saved credential for ${props.providerID}. Configure it in neko.json to use it.`,
           })
           dialog.clear()
           return

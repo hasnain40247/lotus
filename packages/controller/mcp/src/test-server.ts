@@ -75,7 +75,7 @@ const TOOLS = [
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "lotus-code-test-server", version: "0.1.0" },
+  { name: "neko-test-server", version: "0.1.0" },
   { capabilities: { tools: {} } },
 )
 
@@ -148,5 +148,5 @@ server.setRequestHandler(CallToolRequestSchema, (request) => {
 const transport = new StdioServerTransport()
 await server.connect(transport)
 
-// To use: add to lotus-code.json:
+// To use: add to neko.json:
 // { "mcp": { "test": { "type": "local", "command": ["bun", "packages/controller/mcp/src/test-server.ts"] } } }

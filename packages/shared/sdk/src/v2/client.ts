@@ -1,5 +1,5 @@
-// @gco/sdk client — HTTP client that wraps the Lotus Code backend API
-// Compatible interface with @lotus-code/sdk LotusCodeClient
+// @gco/sdk client — HTTP client that wraps the Neko Code backend API
+// Compatible interface with @neko/sdk NekoClient
 
 import type {
   Agent,
@@ -32,7 +32,7 @@ import type {
   Worktree,
 } from "./types"
 
-export type LotusCodeClientConfig = {
+export type NekoClientConfig = {
   baseUrl?: string
   signal?: AbortSignal
   directory?: string
@@ -186,11 +186,11 @@ async function* streamSSE<T>(
 
 // ──────────────────────────────────────────────────────────────────────────────
 
-export class LotusCodeClient {
+export class NekoClient {
   private baseUrl: string
-  private cfg: LotusCodeClientConfig
+  private cfg: NekoClientConfig
 
-  constructor(cfg: LotusCodeClientConfig = {}) {
+  constructor(cfg: NekoClientConfig = {}) {
     this.baseUrl = (cfg.baseUrl ?? "http://localhost:3000").replace(/\/$/, "")
     this.cfg = cfg
   }
@@ -1027,6 +1027,6 @@ export class LotusCodeClient {
   }
 }
 
-export function createLotusCodeClient(config?: LotusCodeClientConfig): LotusCodeClient {
-  return new LotusCodeClient(config)
+export function createNekoClient(config?: NekoClientConfig): NekoClient {
+  return new NekoClient(config)
 }

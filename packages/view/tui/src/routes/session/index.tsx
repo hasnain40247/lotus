@@ -78,7 +78,7 @@ import { getScrollAcceleration } from "../../util/scroll"
 import { collapseToolOutput } from "../../util/collapse-tool-output"
 import { DialogRetryAction } from "../../component/dialog-retry-action"
 import { getRevertDiffFiles } from "../../util/revert-diff"
-import { LOTUS_BASE_MODE, useBindings, useCommandShortcut, useLotusCodeKeymap } from "../../keymap"
+import { NEKO_BASE_MODE, useBindings, useCommandShortcut, useNekoKeymap } from "../../keymap"
 import { usePathFormatter } from "../../context/path-format"
 import { LocationProvider } from "../../context/location"
 import { LogoBanner } from "../../component/logo"
@@ -90,7 +90,7 @@ const GO_UPSELL_FREE_TIER_DONT_SHOW = "go_upsell_dont_show"
 const GO_UPSELL_ACCOUNT_RATE_LIMIT_LAST_SEEN_AT = "go_upsell_account_rate_limit_last_seen_at"
 const GO_UPSELL_ACCOUNT_RATE_LIMIT_DONT_SHOW = "go_upsell_account_rate_limit_dont_show"
 const GO_UPSELL_WINDOW = 86_400_000 // 24 hrs
-const GO_UPSELL_PROVIDERS = new Set(["lotus-code", "lotus-code-go"])
+const GO_UPSELL_PROVIDERS = new Set(["neko", "neko-go"])
 
 export const alwaysSeparate = new WeakSet<BoxRenderable>()
 
@@ -342,7 +342,7 @@ export function Session() {
     seeded = true
     r.set(route.prompt)
   }
-  const keymap = useLotusCodeKeymap()
+  const keymap = useNekoKeymap()
   const dialog = useDialog()
   const renderer = useRenderer()
 
@@ -1104,12 +1104,12 @@ export function Session() {
   }))
 
   useBindings(() => ({
-    mode: LOTUS_BASE_MODE,
+    mode: NEKO_BASE_MODE,
     bindings: tuiConfig.keybinds.gather("session", sessionBindingCommands),
   }))
 
   useBindings(() => ({
-    mode: LOTUS_BASE_MODE,
+    mode: NEKO_BASE_MODE,
     enabled: foregroundTasks().length > 0,
     priority: 1,
     bindings: tuiConfig.keybinds.get("session.background"),

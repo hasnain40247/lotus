@@ -62,7 +62,7 @@ export function Home() {
     <HomeSessionDestinationProvider>
       <box flexGrow={1} alignItems="center" paddingLeft={2} paddingRight={2}>
         {/* Logo pinned to top */}
-        <box flexShrink={0} paddingTop={2} paddingBottom={1} alignItems="center">
+        <box flexShrink={0} paddingTop={7} paddingBottom={1} alignItems="center">
           <Logo />
         </box>
 

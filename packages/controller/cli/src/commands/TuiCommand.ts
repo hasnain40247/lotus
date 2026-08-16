@@ -1,7 +1,7 @@
 /**
- * TuiCommand — launches the lotus-code TUI.
+ * TuiCommand — launches the neko TUI.
  *
- * Default command ($0) — runs when you invoke `lotus-code` with no subcommand.
+ * Default command ($0) — runs when you invoke `neko` with no subcommand.
  * Starts the SolidJS + OpenTUI interface via @gco/view-tui.
  *
  * All services (SessionController, EventRepository, AgentController) are
@@ -64,11 +64,11 @@ type TuiArgs = {
 
 export const TuiCommand: CommandModule<object, TuiArgs> = {
   command: "$0 [project]",
-  describe: "start lotus-code TUI",
+  describe: "start neko TUI",
 
   builder: (yargs: Argv) =>
     yargs
-      .positional("project", { type: "string", describe: "path to start lotus-code in" })
+      .positional("project", { type: "string", describe: "path to start neko in" })
       .option("model", { type: "string", alias: ["m"], describe: "model to use (provider/model-id)" })
       .option("prompt", { type: "string", describe: "initial prompt to send" })
       .option("agent", { type: "string", describe: "agent to use" })
@@ -127,8 +127,8 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         toolRegistry.register({ question: QuestionTool.makeQuestionTool(questionStore) }),
       ).catch(() => {})
 
-      // Load MCP configs and provider API keys from lotus-code.json at startup
-      const cfgFile = Bun.file(path.join(directory, "lotus-code.json"))
+      // Load MCP configs and provider API keys from neko.json at startup
+      const cfgFile = Bun.file(path.join(directory, "neko.json"))
       const cfg = await cfgFile.exists() ? await cfgFile.json().catch(() => ({})) : {}
       if (cfg.mcp && typeof cfg.mcp === "object") {
         rt.runFork(mcpCtrl.loadConfig(cfg.mcp, directory))
@@ -151,7 +151,7 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
           }),
         ).catch(() => {})
       }
-      // Load provider API keys from lotus-code.json (overrides env vars if not already set)
+      // Load provider API keys from neko.json (overrides env vars if not already set)
       if (cfg.provider && typeof cfg.provider === "object") {
         const p = cfg.provider as Record<string, any>
         if (p.deepseek?.apiKey && !process.env.DEEPSEEK_API_KEY)
@@ -222,7 +222,7 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         revertSession: (sid, messageID) =>
           rt.runPromise(sessionCtrl.revert(sid as any, messageID as any)).catch(() => {}),
         listAgents: async () => {
-          const cfgPath = path.join(directory, "lotus-code.json")
+          const cfgPath = path.join(directory, "neko.json")
           const file = Bun.file(cfgPath)
           const cfg = await file.exists() ? await file.json().catch(() => ({})) : {}
           const overrides: Record<string, AgentRegistry.AgentOverride> = cfg.agents ?? {}

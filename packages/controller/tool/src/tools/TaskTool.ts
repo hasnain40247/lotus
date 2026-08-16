@@ -1,7 +1,7 @@
 /**
  * TaskTool — create and track tasks (subagent sessions) within a session.
  *
- * Ported from @lotus-code/lotus-code tool/task.ts.
+ * Ported from @neko/neko tool/task.ts.
  * Logic kept identical — foreground/background task execution is delegated
  * to the injected TaskRunnerService context.
  */

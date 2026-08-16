@@ -1,5 +1,5 @@
 {
-  "$schema": "https://lotus-code.ai/theme.json",
+  "$schema": "https://neko.ai/theme.json",
   "defs": {
     "base": "#191724",
     "surface": "#1f1d2e",

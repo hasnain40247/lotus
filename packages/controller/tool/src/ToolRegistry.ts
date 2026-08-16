@@ -1,7 +1,7 @@
 /**
  * ToolRegistry — holds a Map of tool definitions keyed by name.
  *
- * Ported from @lotus-code/core registry.ts.
+ * Ported from @neko/core registry.ts.
  *
  *   register(tool)              — adds a tool (scope-finalizer removes it)
  *   materialize(ruleset?)       — returns definitions filtered by permission ruleset

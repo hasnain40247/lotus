@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "bin": {
-    "lotus-code": "./src/index.ts"
+    "neko": "./src/index.ts"
   },
   "exports": {
     ".": "./src/index.ts"

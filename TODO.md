@@ -41,7 +41,7 @@ All 19 tool files in `controller/tool/src/tools/` are fully implemented and regi
 
 All command files are implemented. One placeholder remains:
 
-- [x] `RunCommand` — `lotus-code run "prompt"` non-interactive single-shot mode
+- [x] `RunCommand` — `neko run "prompt"` non-interactive single-shot mode
 - [x] `ExportCommand` — wired to `SessionExporter`, prints resulting `gs://` URI
 - [x] `ImportCommand` — wired to `SessionImporter`
 - [x] `DbCommand` — prints Firestore project/collection config (`path` subcommand)
@@ -50,7 +50,7 @@ All command files are implemented. One placeholder remains:
 - [x] `UpgradeCommand` — checks for newer version, self-updates
 - [x] `DebugCommand` — dumps runtime config, agent registry, paths, env info
 - [x] `PromptDisplayCommand` — renders a prompt template for inspection
-- [x] `lotus-code session delete` — calls `SessionController.interrupt()` then `SessionRepository.archive()`, prints confirmation
+- [x] `neko session delete` — calls `SessionController.interrupt()` then `SessionRepository.archive()`, prints confirmation
 
 ---
 

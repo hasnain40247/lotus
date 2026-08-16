@@ -18,16 +18,16 @@ import { useTuiConfig } from "./config"
 import { TuiKeybind } from "./config/keybind"
 
 export const LEADER_TOKEN = "leader"
-export const LOTUS_BASE_MODE = "base"
-const LOTUS_MODE_KEY = "lotus-code.mode"
+export const NEKO_BASE_MODE = "base"
+const NEKO_MODE_KEY = "neko.mode"
 
-export const LotusCodeKeymapProvider = KeymapProvider
-export const useLotusCodeKeymap = useKeymap
+export const NekoKeymapProvider = KeymapProvider
+export const useNekoKeymap = useKeymap
 
 export { useBindings, useKeymapSelector }
 
 export type OpenTuiKeymap = ReturnType<typeof useKeymap>
-type LotusCodeModeStack = ReturnType<typeof createLotusCodeModeStack>
+type NekoModeStack = ReturnType<typeof createNekoModeStack>
 type CommandSlashEntry = {
   display: string
   description?: string
@@ -42,18 +42,18 @@ type BindingLookup = {
 type FormatConfig = { keybinds: BindingLookup }
 type ResolvedKeymapConfig = FormatConfig & { leader_timeout: number }
 
-const modeStacks = new WeakMap<OpenTuiKeymap, LotusCodeModeStack>()
+const modeStacks = new WeakMap<OpenTuiKeymap, NekoModeStack>()
 
 function isVisiblePaletteCommand(command: Command) {
   return command.hidden !== true
 }
 
-export function createLotusCodeModeStack(keymap: OpenTuiKeymap) {
-  keymap.setData(LOTUS_MODE_KEY, LOTUS_BASE_MODE)
+export function createNekoModeStack(keymap: OpenTuiKeymap) {
+  keymap.setData(NEKO_MODE_KEY, NEKO_BASE_MODE)
 
   const offFields = keymap.registerLayerFields({
     mode(value, ctx) {
-      ctx.require(LOTUS_MODE_KEY, value)
+      ctx.require(NEKO_MODE_KEY, value)
     },
   })
 
@@ -61,12 +61,12 @@ export function createLotusCodeModeStack(keymap: OpenTuiKeymap) {
   let disposed = false
 
   const update = () => {
-    keymap.setData(LOTUS_MODE_KEY, stack.at(-1)?.mode ?? LOTUS_BASE_MODE)
+    keymap.setData(NEKO_MODE_KEY, stack.at(-1)?.mode ?? NEKO_BASE_MODE)
   }
 
   const stackApi = {
     current() {
-      return stack.at(-1)?.mode ?? LOTUS_BASE_MODE
+      return stack.at(-1)?.mode ?? NEKO_BASE_MODE
     },
     push(mode: string) {
       if (disposed) return () => {}
@@ -88,7 +88,7 @@ export function createLotusCodeModeStack(keymap: OpenTuiKeymap) {
       disposed = true
       stack.length = 0
       offFields()
-      keymap.setData(LOTUS_MODE_KEY, undefined)
+      keymap.setData(NEKO_MODE_KEY, undefined)
       modeStacks.delete(keymap)
     },
   }
@@ -97,13 +97,13 @@ export function createLotusCodeModeStack(keymap: OpenTuiKeymap) {
   return stackApi
 }
 
-export function useLotusCodeModeStack() {
-  return getLotusCodeModeStack(useLotusCodeKeymap())
+export function useNekoModeStack() {
+  return getNekoModeStack(useNekoKeymap())
 }
 
-export function getLotusCodeModeStack(keymap: OpenTuiKeymap) {
+export function getNekoModeStack(keymap: OpenTuiKeymap) {
   const value = modeStacks.get(keymap)
-  if (!value) throw new Error("LotusCode mode stack is not registered for this keymap")
+  if (!value) throw new Error("Neko mode stack is not registered for this keymap")
   return value
 }
 
@@ -209,8 +209,8 @@ export function formatKeyBindings(bindings: Parameters<typeof formatCommandBindi
   return formatCommandBindingsExtra(bindings, formatOptions(config))
 }
 
-export function registerLotusCodeKeymap(keymap: OpenTuiKeymap, renderer: CliRenderer, config: ResolvedKeymapConfig) {
-  const modeStack = createLotusCodeModeStack(keymap)
+export function registerNekoKeymap(keymap: OpenTuiKeymap, renderer: CliRenderer, config: ResolvedKeymapConfig) {
+  const modeStack = createNekoModeStack(keymap)
   const offCommaBindings = registerCommaBindings(keymap)
   const offAliasExpander = registerKeyAliases(keymap)
   const offBaseLayout = registerBaseLayoutFallback(keymap)
@@ -256,7 +256,7 @@ export function useCommandShortcut(command: string): Accessor<string> {
 }
 
 export function useCommandSlashes(): Accessor<readonly CommandSlashEntry[]> {
-  const keymap = useLotusCodeKeymap()
+  const keymap = useNekoKeymap()
   const entries = useKeymapSelector((keymap: OpenTuiKeymap) =>
     keymap.getCommandEntries({
       visibility: "reachable",

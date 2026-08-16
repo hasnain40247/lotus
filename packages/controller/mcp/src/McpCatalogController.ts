@@ -1,7 +1,7 @@
 /**
  * McpCatalogController — tool/prompt/resource discovery helpers for MCP clients.
  *
- * Ported from packages/lotus-code/src/mcp/catalog.ts.
+ * Ported from packages/neko/src/mcp/catalog.ts.
  * Handles paginated listing of tools, prompts, and resources, plus the
  * canonical tool-name sanitization and conversion utilities.
  */

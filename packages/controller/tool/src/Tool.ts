@@ -1,7 +1,7 @@
 /**
  * Core tool definition types and runtime helpers.
  *
- * Ported from @lotus-code/core tool/tool.ts — logic is kept identical.
+ * Ported from @neko/core tool/tool.ts — logic is kept identical.
  */
 export * as Tool from "./Tool"
 
@@ -46,7 +46,7 @@ export type Content =
 
 // ---------------------------------------------------------------------------
 // ToolDefinition & ToolOutput shims
-// (mirrors @lotus-code/llm shapes without the real dependency)
+// (mirrors @neko/llm shapes without the real dependency)
 // ---------------------------------------------------------------------------
 
 export interface ToolDefinition {

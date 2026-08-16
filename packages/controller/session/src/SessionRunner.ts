@@ -1,7 +1,7 @@
 /**
  * SessionRunner — LLM turn orchestrator.
  *
- * Ported from @lotus-code/packages/core/src/session/runner/llm.ts.
+ * Ported from @neko/packages/core/src/session/runner/llm.ts.
  *
  * Responsibilities:
  *   1. Load session info from ISessionRepository

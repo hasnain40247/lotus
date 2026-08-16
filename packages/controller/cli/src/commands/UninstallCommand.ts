@@ -1,5 +1,5 @@
 /**
- * UninstallCommand — uninstall lotus-code and remove related files.
+ * UninstallCommand — uninstall neko and remove related files.
  *
  * Options:
  *   --keep-config  keep configuration files
@@ -64,24 +64,24 @@ async function dirSize(dir: string): Promise<number> {
 function configDir(): string {
   return (
     process.env.XDG_CONFIG_HOME
-      ? path.join(process.env.XDG_CONFIG_HOME, "lotus-code")
-      : path.join(os.homedir(), ".config", "lotus-code")
+      ? path.join(process.env.XDG_CONFIG_HOME, "neko")
+      : path.join(os.homedir(), ".config", "neko")
   )
 }
 
 function dataDir(): string {
   return (
     process.env.XDG_DATA_HOME
-      ? path.join(process.env.XDG_DATA_HOME, "lotus-code")
-      : path.join(os.homedir(), ".local", "share", "lotus-code")
+      ? path.join(process.env.XDG_DATA_HOME, "neko")
+      : path.join(os.homedir(), ".local", "share", "neko")
   )
 }
 
 function cacheDir(): string {
   return (
     process.env.XDG_CACHE_HOME
-      ? path.join(process.env.XDG_CACHE_HOME, "lotus-code")
-      : path.join(os.homedir(), ".cache", "lotus-code")
+      ? path.join(process.env.XDG_CACHE_HOME, "neko")
+      : path.join(os.homedir(), ".cache", "neko")
   )
 }
 
@@ -91,7 +91,7 @@ function cacheDir(): string {
 
 async function uninstallHandler(args: UninstallArgs): Promise<void> {
   process.stdout.write(EOL)
-  prompts.intro("Uninstall lotus-code")
+  prompts.intro("Uninstall neko")
 
   const targets: Array<{ path: string; label: string; keep: boolean }> = [
     { path: dataDir(), label: "Data", keep: args.keepData },
@@ -150,7 +150,7 @@ async function uninstallHandler(args: UninstallArgs): Promise<void> {
     }
   }
 
-  prompts.log.success("Thank you for using lotus-code!")
+  prompts.log.success("Thank you for using neko!")
   prompts.outro("Done")
 }
 
@@ -160,7 +160,7 @@ async function uninstallHandler(args: UninstallArgs): Promise<void> {
 
 export const UninstallCommand: CommandModule<object, UninstallArgs> = {
   command: "uninstall",
-  describe: "uninstall lotus-code and remove all related files",
+  describe: "uninstall neko and remove all related files",
 
   builder: (yargs: Argv) =>
     yargs

@@ -1,4 +1,4 @@
-# lotus-code
+# neko
 
 AI coding assistant CLI — terminal-only, single-user, MVC architecture backed by Google Cloud.
 
@@ -31,7 +31,7 @@ Five services: Firestore (sessions/events), Secret Manager (API keys), Cloud Sto
 # One-time local auth — all @google-cloud/* SDKs pick this up automatically
 gcloud auth application-default login
 
-# Add to your lotus-code.json
+# Add to your neko.json
 {
   "gcp": {
     "projectId": "your-gcp-project-id",
@@ -80,21 +80,21 @@ bun test  # uses in-memory layer automatically
 ## Commands
 
 ```bash
-lotus-code                  # open TUI (default)
-lotus-code run "prompt"     # non-interactive single prompt
-lotus-code session list     # list sessions
-lotus-code session delete   # delete a session
-lotus-code export           # export session to Cloud Storage
-lotus-code import           # import a session
-lotus-code providers        # manage LLM provider auth
-lotus-code models           # list available models
-lotus-code agent list       # list configured agents
-lotus-code agent create     # create a new agent
-lotus-code mcp list         # list MCP servers
-lotus-code mcp add          # add an MCP server
-lotus-code mcp auth         # authenticate with an MCP server
-lotus-code upgrade          # upgrade to latest version
-lotus-code uninstall        # uninstall
+neko                  # open TUI (default)
+neko run "prompt"     # non-interactive single prompt
+neko session list     # list sessions
+neko session delete   # delete a session
+neko export           # export session to Cloud Storage
+neko import           # import a session
+neko providers        # manage LLM provider auth
+neko models           # list available models
+neko agent list       # list configured agents
+neko agent create     # create a new agent
+neko mcp list         # list MCP servers
+neko mcp add          # add an MCP server
+neko mcp auth         # authenticate with an MCP server
+neko upgrade          # upgrade to latest version
+neko uninstall        # uninstall
 ```
 
 ## Effect-TS Patterns
@@ -114,7 +114,7 @@ const appLayer = controllerLayer.pipe(Layer.provide(modelLayer))
 
 ## Agents
 
-Defined in `lotus-code.json` under `agents` key or via `AGENTS.md` files in the project root.
+Defined in `neko.json` under `agents` key or via `AGENTS.md` files in the project root.
 
 ```jsonc
 {

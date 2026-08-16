@@ -1,10 +1,10 @@
 /**
  * McpController — Effect service managing MCP client connections.
  *
- * Ported from packages/lotus-code/src/mcp/index.ts.
+ * Ported from packages/neko/src/mcp/index.ts.
  *
  * Manages stdio and HTTP-based MCP clients, tool discovery, OAuth flows,
- * and connection lifecycle. Replaces lotus-code-specific deps (InstanceState,
+ * and connection lifecycle. Replaces neko-specific deps (InstanceState,
  * EffectBridge, Config.Service, EventV2Bridge) with standalone equivalents
  * suitable for @gco/controller-mcp.
  */
@@ -197,7 +197,7 @@ export interface Interface {
   readonly supportsOAuth: (mcpName: string) => Effect.Effect<boolean, NotFoundError>
   readonly hasStoredTokens: (mcpName: string) => Effect.Effect<boolean>
   readonly getAuthStatus: (mcpName: string) => Effect.Effect<AuthStatus>
-  /** Load an initial set of MCP configs (e.g. from lotus-code.json). */
+  /** Load an initial set of MCP configs (e.g. from neko.json). */
   readonly loadConfig: (
     configs: Record<string, McpConfig.Info>,
     directory: string,
@@ -224,7 +224,7 @@ export class Service extends Context.Service<Service, Interface>()("@gco/McpCont
 // ---------------------------------------------------------------------------
 
 function createClient(directory: string): MCPClient {
-  const client = new Client({ name: "lotus-code", version: "0.1.0" }, CLIENT_OPTIONS)
+  const client = new Client({ name: "neko", version: "0.1.0" }, CLIENT_OPTIONS)
   client.setRequestHandler(ListRootsRequestSchema, () =>
     Promise.resolve({ roots: [{ uri: pathToFileURL(directory).href }] }),
   )
@@ -378,7 +378,7 @@ export function makeLayer(
                   lastStatus = { status: "needs_auth" as const }
                   mcpCallbacks.onNeedsAuth?.(
                     key,
-                    `Server "${key}" requires authentication. Run: lotus-code mcp auth ${key}`,
+                    `Server "${key}" requires authentication. Run: neko mcp auth ${key}`,
                   )
                 }
                 return Effect.succeed(undefined)
@@ -415,7 +415,7 @@ export function makeLayer(
           cwd,
           env: {
             ...process.env,
-            ...(cmd === "lotus-code" ? { BUN_BE_BUN: "1" } : {}),
+            ...(cmd === "neko" ? { BUN_BE_BUN: "1" } : {}),
             ...mcp.environment,
           },
         })
@@ -987,7 +987,7 @@ export function makeLayer(
       })
 
       // -----------------------------------------------------------------------
-      // loadConfig — bulk-load from lotus-code.json (or equivalent)
+      // loadConfig — bulk-load from neko.json (or equivalent)
       // -----------------------------------------------------------------------
 
       const loadConfig = Effect.fn("McpController.loadConfig")(function* (

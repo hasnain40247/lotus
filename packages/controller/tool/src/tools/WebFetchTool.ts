@@ -1,7 +1,7 @@
 /**
  * WebFetchTool — HTTP requests returning text, markdown, or HTML.
  *
- * Ported from @lotus-code/core tool/webfetch.ts.
+ * Ported from @neko/core tool/webfetch.ts.
  * Logic kept identical.
  */
 export * as WebFetchTool from "./WebFetchTool"

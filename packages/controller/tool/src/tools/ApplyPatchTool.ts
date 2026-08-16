@@ -1,7 +1,7 @@
 /**
  * ApplyPatchTool — apply a custom patch format containing add/update/delete ops.
  *
- * Ported from @lotus-code/core tool/apply-patch.ts.
+ * Ported from @neko/core tool/apply-patch.ts.
  * Logic kept identical.
  */
 export * as ApplyPatchTool from "./ApplyPatchTool"
@@ -49,7 +49,7 @@ export const Output = Schema.Struct({
 export type Output = typeof Output.Type
 
 // ---------------------------------------------------------------------------
-// Patch parser (minimal port of @lotus-code/core Patch)
+// Patch parser (minimal port of @neko/core Patch)
 // ---------------------------------------------------------------------------
 
 type Chunk = { context: string[]; added: string[]; removed: string[] }

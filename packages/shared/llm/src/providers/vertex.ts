@@ -97,11 +97,11 @@ export const model = provider.model
  * variables automatically. Use this when you don't want to pass config explicitly.
  */
 export const fromEnv = Effect.gen(function* () {
-  const projectId = yield* Config.string("LOTUS_PROJECT_ID").pipe(
+  const projectId = yield* Config.string("NEKO_PROJECT_ID").pipe(
     Effect.catch(() => Config.string("GOOGLE_CLOUD_PROJECT")),
     Effect.catch(() => Effect.succeed("unknown-project")),
   )
-  const region = yield* Config.string("LOTUS_REGION").pipe(
+  const region = yield* Config.string("NEKO_REGION").pipe(
     Effect.catch(() => Effect.succeed(DEFAULT_REGION)),
   )
   return configure({ projectId, region })

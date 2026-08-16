@@ -1,7 +1,7 @@
 /**
  * GlobTool — pattern-based file search.
  *
- * Ported from @lotus-code/core tool/glob.ts.
+ * Ported from @neko/core tool/glob.ts.
  * Logic kept identical — uses node's built-in glob (Node 22+) or falls back
  * to a recursive walk with micromatch-style pattern matching.
  */

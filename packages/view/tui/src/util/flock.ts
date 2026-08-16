@@ -4,7 +4,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "fs/promises"
 
 const state = path.join(
   process.env.XDG_STATE_HOME ?? path.join(os.homedir(), ".local", "state"),
-  "lotus-code",
+  "neko",
 )
 
 export namespace Flock {

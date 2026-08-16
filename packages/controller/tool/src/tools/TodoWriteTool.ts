@@ -1,7 +1,7 @@
 /**
  * TodoWriteTool — write TODO list tracked across turns.
  *
- * Ported from @lotus-code/core tool/todowrite.ts.
+ * Ported from @neko/core tool/todowrite.ts.
  * Logic kept identical.
  */
 export * as TodoWriteTool from "./TodoWriteTool"
@@ -16,7 +16,7 @@ import { ToolFailure, make as makeTool, type AnyTool } from "../Tool"
 export const name = "todowrite"
 
 // ---------------------------------------------------------------------------
-// Todo schema (matches @lotus-code/core SessionTodo.Info)
+// Todo schema (matches @neko/core SessionTodo.Info)
 // ---------------------------------------------------------------------------
 
 export const TodoStatus = Schema.Literals(["pending", "in_progress", "completed", "cancelled"])

@@ -1,7 +1,7 @@
 /**
  * GrepTool — content search with regex across files.
  *
- * Ported from @lotus-code/core tool/grep.ts.
+ * Ported from @neko/core tool/grep.ts.
  * Logic kept identical.
  */
 export * as GrepTool from "./GrepTool"

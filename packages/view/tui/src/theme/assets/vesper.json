@@ -1,5 +1,5 @@
 {
-  "$schema": "https://lotus-code.ai/theme.json",
+  "$schema": "https://neko.ai/theme.json",
   "defs": {
     "vesperBg": "#101010",
     "vesperFg": "#FFF",

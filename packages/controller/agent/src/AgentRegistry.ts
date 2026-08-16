@@ -1,6 +1,6 @@
 /**
  * AgentRegistry — loads and merges built-in agent definitions with any
- * user-supplied overrides read from lotus-code.json (or equivalent config).
+ * user-supplied overrides read from neko.json (or equivalent config).
  *
  * Ported from:
  *   packages/core/src/plugin/agent.ts   — built-in agents + system prompts
@@ -14,7 +14,7 @@ import { Agent, Permission } from "@gco/schema"
 // Built-in system prompts
 // ---------------------------------------------------------------------------
 
-const PROMPT_BUILD = `You are lotus-code, an AI coding agent working in a terminal alongside the user.
+const PROMPT_BUILD = `You are neko, an AI coding agent working in a terminal alongside the user.
 
 Help the user accomplish software engineering tasks by inspecting the workspace, making targeted changes, and using tools according to the configured permissions.
 
@@ -288,7 +288,7 @@ export function builtInAgents(): Map<Agent.ID, Agent.Info> {
 }
 
 // ---------------------------------------------------------------------------
-// Agent override shape (from lotus-code.json / project config)
+// Agent override shape (from neko.json / project config)
 // ---------------------------------------------------------------------------
 
 export interface AgentOverride {
@@ -305,7 +305,7 @@ export interface AgentOverride {
 /**
  * Merge user-supplied overrides on top of the built-in agents map.
  *
- * @param overrides  Record read from the `agents` block of lotus-code.json.
+ * @param overrides  Record read from the `agents` block of neko.json.
  * @returns          A new Map merging built-ins with user overrides.
  */
 export function merge(overrides: Record<string, AgentOverride>): Map<Agent.ID, Agent.Info> {

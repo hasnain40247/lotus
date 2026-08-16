@@ -1,7 +1,7 @@
 /**
  * @gco/controller-tool
  *
- * Tool definitions and registry for the lotus-code project.
+ * Tool definitions and registry for the neko project.
  *
  * Re-exports all tool modules and provides the combined layer:
  *   ToolControllerLayer = ToolRegistry.layer + ToolPermissionEnforcer.layer

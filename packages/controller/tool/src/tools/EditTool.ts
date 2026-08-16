@@ -1,7 +1,7 @@
 /**
  * EditTool — targeted exact string replacement in existing files.
  *
- * Ported from @lotus-code/core tool/edit.ts.
+ * Ported from @neko/core tool/edit.ts.
  * Logic kept identical.
  */
 export * as EditTool from "./EditTool"

@@ -6,7 +6,7 @@ export function useConnected() {
   return createMemo(() =>
     sync.data.provider.some(
       (provider) =>
-        provider.id !== "lotus-code" || Object.values(provider.models).some((model) => model.cost?.input !== 0),
+        provider.id !== "neko" || Object.values(provider.models).some((model) => model.cost?.input !== 0),
     ),
   )
 }

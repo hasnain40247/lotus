@@ -1,7 +1,7 @@
 /**
  * SessionController — Effect service for creating and managing sessions.
  *
- * Ported from @lotus-code/packages/core/src/session.ts.
+ * Ported from @neko/packages/core/src/session.ts.
  *
  * Exposes:
  *   create(input)               — create a new session, persist to ISessionRepository

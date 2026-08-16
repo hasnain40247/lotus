@@ -1,7 +1,7 @@
 /**
  * WriteTool — file creation and overwrite.
  *
- * Ported from @lotus-code/core tool/write.ts.
+ * Ported from @neko/core tool/write.ts.
  * Logic kept identical.
  */
 export * as WriteTool from "./WriteTool"

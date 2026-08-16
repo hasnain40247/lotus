@@ -1,4 +1,4 @@
-# Architecture: lotus-code
+# Architecture: neko
 
 Terminal-only AI coding assistant CLI. MVC monorepo backed by Google Cloud. Single-user, Bun + TypeScript + Effect-TS.
 
@@ -79,8 +79,8 @@ All collections are scoped under `/users/{email}/` — different Google accounts
 GCP project and region come from environment variables read by `cloud/src/config.ts`:
 
 ```bash
-LOTUS_PROJECT_ID=my-project   # required
-LOTUS_REGION=us-central1      # optional, defaults to us-central1
+NEKO_PROJECT_ID=my-project   # required
+NEKO_REGION=us-central1      # optional, defaults to us-central1
 ```
 
 ---
@@ -180,7 +180,7 @@ Compaction failures are swallowed (`Effect.catchCause(() => Effect.void)`) — t
 
 ### MCP (`controller/mcp/src/`)
 
-Full MCP client management with OAuth. Tokens stored in `~/.local/share/lotus-code/mcp-auth.json` (XDG, mode 0o600). OAuth callback runs a local HTTP server.
+Full MCP client management with OAuth. Tokens stored in `~/.local/share/neko/mcp-auth.json` (XDG, mode 0o600). OAuth callback runs a local HTTP server.
 
 ### Tool (`controller/tool/src/`)
 
@@ -206,7 +206,7 @@ When the TUI starts, an HTTP server binds to a random port on `localhost`. The p
 | `GET` | `/global/health` | Returns `"OK"` |
 | `GET` | `/global/event` | SSE stream — emits session events and lifecycle notifications |
 | `GET` | `/config` | Current config `{ model, ...overrides }` |
-| `PATCH` | `/config` | Merge body into config; persists `model` changes to `lotus-code.json` |
+| `PATCH` | `/config` | Merge body into config; persists `model` changes to `neko.json` |
 | `GET` | `/provider` | Provider list with model catalog and connection status |
 | `GET` | `/provider/auth` | Provider auth methods |
 | `GET` | `/path` | Resolved filesystem paths (home, state, config, worktree, directory) |
@@ -237,13 +237,13 @@ When the TUI starts, an HTTP server binds to a random port on `localhost`. The p
 
 ### Skills (Agents)
 
-Skills are named agent definitions with a system prompt. They are persisted to `lotus-code.json` under the `agents` key and loaded at next startup.
+Skills are named agent definitions with a system prompt. They are persisted to `neko.json` under the `agents` key and loaded at next startup.
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/skill` | List registered tools as skills |
 | `POST` | `/skill` | Create a new skill — see body below |
-| `DELETE` | `/skill/:name` | Remove a skill from `lotus-code.json` |
+| `DELETE` | `/skill/:name` | Remove a skill from `neko.json` |
 
 **POST /skill body:**
 ```json
@@ -262,9 +262,9 @@ Skills are named agent definitions with a system prompt. They are persisted to `
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/mcp` | Live status of all configured MCP servers |
-| `POST` | `/mcp` | Add and connect a new server — persists to `lotus-code.json` |
+| `POST` | `/mcp` | Add and connect a new server — persists to `neko.json` |
 | `POST` | `/mcp/:name/connect` | Connect a pre-configured server |
-| `DELETE` | `/mcp/:name` | Disconnect and remove from `lotus-code.json` |
+| `DELETE` | `/mcp/:name` | Disconnect and remove from `neko.json` |
 
 **POST /mcp — local stdio server:**
 ```json

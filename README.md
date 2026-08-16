@@ -1,9 +1,9 @@
-# Lotus
+# Neko
 
 A terminal-based AI pair programmer, built with an MVC architecture on Google Cloud. Single-user by design, four LLM providers, first-class MCP support.
 
 <p align="center">
-  <img src="./assets/image.png" alt="Lotus running in a terminal" width="820" />
+  <img src="./assets/image.png" alt="Neko running in a terminal" width="820" />
 </p>
 
 ## Features
@@ -28,8 +28,8 @@ A terminal-based AI pair programmer, built with an MVC architecture on Google Cl
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/lotus
-cd lotus
+git clone https://github.com/yourusername/neko
+cd neko
 bun install
 ```
 
@@ -47,7 +47,7 @@ gcloud services enable firestore.googleapis.com \
   logging.googleapis.com
 ```
 
-Add a `gcp` block to your project's `lotus-code.json`:
+Add a `gcp` block to your project's `neko.json`:
 
 ```jsonc
 {
@@ -104,14 +104,14 @@ Type `/` in the TUI to browse. Highlights:
 
 - `/agent` — list, switch to, delete, or create a new agent (name → description → mode)
 - `/mcp` — list connected MCP servers (with status), reconnect, delete, or add a new local server (name → command → env)
-- `/theme` — pick Light or Dark; stored in `~/.lotus-code/config.json` (restart to apply)
+- `/theme` — pick Light or Dark; stored in `~/.neko/config.json` (restart to apply)
 - `/rename` — rename the current session
 - `/compact` — summarize the session to shrink the context window
 - `/timeline` — jump to a message in the transcript
 
 ## Agents
 
-Configure agents in `lotus-code.json`, drop an `AGENTS.md` in your project root, or create them interactively via `/agent`:
+Configure agents in `neko.json`, drop an `AGENTS.md` in your project root, or create them interactively via `/agent`:
 
 ```jsonc
 {
@@ -135,7 +135,7 @@ Built-in agents: `build` (default), `plan`, `explore`, `general`, plus the inter
 
 ## MCP Servers
 
-Local (subprocess) or remote (URL). Add via `/mcp` or by editing `lotus-code.json`:
+Local (subprocess) or remote (URL). Add via `/mcp` or by editing `neko.json`:
 
 ```jsonc
 {

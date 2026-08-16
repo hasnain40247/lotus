@@ -1,5 +1,5 @@
 /**
- * bootstrap.ts — Effect Layer compositions for lotus-code.
+ * bootstrap.ts — Effect Layer compositions for neko.
  *
  * Two exported layers:
  *   ProductionLayer — real GCP services (Firestore, Secret Manager, Vertex AI)

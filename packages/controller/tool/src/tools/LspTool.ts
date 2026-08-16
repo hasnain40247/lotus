@@ -1,7 +1,7 @@
 /**
  * LspTool — LSP queries (diagnostics, go-to-definition, hover, etc.)
  *
- * Ported from @lotus-code/lotus-code tool/lsp.ts.
+ * Ported from @neko/neko tool/lsp.ts.
  * Logic kept identical — requires an ILspService context.
  */
 export * as LspTool from "./LspTool"

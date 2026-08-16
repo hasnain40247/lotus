@@ -45,8 +45,8 @@ export class CloudLogger extends Context.Service<CloudLogger, CloudLoggerShape>(
       const config = yield* GcpConfig
 
       const logging = new Logging({ projectId: config.projectId })
-      // Log name follows the pattern: "projects/{projectId}/logs/lotus-code"
-      const logInstance = logging.log("lotus-code")
+      // Log name follows the pattern: "projects/{projectId}/logs/neko"
+      const logInstance = logging.log("neko")
 
       const log = (
         severity: LogSeverity,

@@ -3,10 +3,9 @@ import catppuccin from "./assets/catppuccin.json" with { type: "json" }
 import dracula from "./assets/dracula.json" with { type: "json" }
 import github from "./assets/github.json" with { type: "json" }
 import gruvbox from "./assets/gruvbox.json" with { type: "json" }
-import lotus from "./assets/lotus.json" with { type: "json" }
+import neko from "./assets/neko.json" with { type: "json" }
 import nord from "./assets/nord.json" with { type: "json" }
 import onedark from "./assets/one-dark.json" with { type: "json" }
-import lotusCode from "./assets/lotus-code.json" with { type: "json" }
 import rosepine from "./assets/rosepine.json" with { type: "json" }
 import tokyonight from "./assets/tokyonight.json" with { type: "json" }
 import vesper from "./assets/vesper.json" with { type: "json" }
@@ -106,14 +105,13 @@ export type ThemeJson = {
 }
 
 export const DEFAULT_THEMES: Record<string, ThemeJson> = {
-  lotus,
+  neko,
   catppuccin,
   dracula,
   github,
   gruvbox,
   nord,
   ["one-dark"]: onedark,
-  ["lotus-code"]: lotusCode,
   rosepine,
   tokyonight,
   vesper,

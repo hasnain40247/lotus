@@ -1,7 +1,7 @@
 import type { TuiConfig } from "./config"
 import stripAnsi from "strip-ansi"
 
-// Inline types previously imported from @lotus-code/plugin/tui
+// Inline types previously imported from @neko/plugin/tui
 export type TuiAttentionWhen = "always" | "focused" | "blurred"
 export type TuiAttentionNotifySkipReason =
   | "attention_disabled"
@@ -52,7 +52,7 @@ type TuiAttentionHost = TuiAttention & {
   dispose(): void
 }
 
-const DEFAULT_TITLE = "lotus-code"
+const DEFAULT_TITLE = "neko"
 const TITLE_LIMIT = 80
 const MESSAGE_LIMIT = 240
 

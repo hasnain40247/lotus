@@ -2,10 +2,10 @@ export * from "./types"
 export * from "./client"
 export * as data from "./data"
 
-import { createLotusCodeClient } from "./client"
-import type { LotusCodeClientConfig } from "./client"
+import { createNekoClient } from "./client"
+import type { NekoClientConfig } from "./client"
 
-export async function createLotusCode(options?: LotusCodeClientConfig) {
-  const client = createLotusCodeClient(options)
+export async function createNeko(options?: NekoClientConfig) {
+  const client = createNekoClient(options)
   return { client }
 }

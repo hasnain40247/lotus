@@ -1,31 +1,31 @@
 #!/usr/bin/env bun
 /**
- * lotus-code CLI entry point.
+ * neko CLI entry point.
  *
  * Wires all commands together via yargs, sets the script name, and provides
  * consistent help/version flags.
  */
 
-// Load lotus-code.json GCP config into env vars before Effect reads them.
+// Load neko.json GCP config into env vars before Effect reads them.
 // Effect's Config.string() only reads process.env, so this must run first.
 await (async () => {
   try {
-    const file = Bun.file("lotus-code.json")
+    const file = Bun.file("neko.json")
     if (await file.exists()) {
       const cfg = await file.json()
-      if (cfg?.gcp?.projectId && !process.env.LOTUS_PROJECT_ID)
-        process.env.LOTUS_PROJECT_ID = cfg.gcp.projectId
-      if (cfg?.gcp?.region && !process.env.LOTUS_REGION)
-        process.env.LOTUS_REGION = cfg.gcp.region
+      if (cfg?.gcp?.projectId && !process.env.NEKO_PROJECT_ID)
+        process.env.NEKO_PROJECT_ID = cfg.gcp.projectId
+      if (cfg?.gcp?.region && !process.env.NEKO_REGION)
+        process.env.NEKO_REGION = cfg.gcp.region
       if (cfg?.provider?.deepseek?.apiKey && !process.env.DEEPSEEK_API_KEY)
         process.env.DEEPSEEK_API_KEY = cfg.provider.deepseek.apiKey
       if (cfg?.provider?.anthropic?.apiKey && !process.env.ANTHROPIC_API_KEY)
         process.env.ANTHROPIC_API_KEY = cfg.provider.anthropic.apiKey
-      if (cfg?.server?.port && !process.env.LOTUS_SERVER_PORT)
-        process.env.LOTUS_SERVER_PORT = String(cfg.server.port)
+      if (cfg?.server?.port && !process.env.NEKO_SERVER_PORT)
+        process.env.NEKO_SERVER_PORT = String(cfg.server.port)
     }
   } catch {
-    // Malformed lotus-code.json — ignore, the config layer will produce a clear error.
+    // Malformed neko.json — ignore, the config layer will produce a clear error.
   }
 })()
 
@@ -54,7 +54,7 @@ import { PromptDisplayCommand } from "./commands/PromptDisplayCommand.js"
 // Version
 // ---------------------------------------------------------------------------
 
-const VERSION = process.env.LOTUS_VERSION ?? "0.1.0"
+const VERSION = process.env.NEKO_VERSION ?? "0.1.0"
 
 // ---------------------------------------------------------------------------
 // CLI setup
@@ -64,7 +64,7 @@ const args = hideBin(process.argv)
 
 const cli = yargs(args)
   .parserConfiguration({ "populate--": true })
-  .scriptName("lotus-code")
+  .scriptName("neko")
   .wrap(100)
   .help("help", "show help")
   .alias("help", "h")

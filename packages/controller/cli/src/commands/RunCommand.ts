@@ -1,5 +1,5 @@
 /**
- * RunCommand — non-interactive `lotus-code run` command.
+ * RunCommand — non-interactive `neko run` command.
  *
  * Accepts a prompt string, creates or continues a session, streams
  * tool-use and text output to stdout, then exits when the session goes idle.
@@ -212,7 +212,7 @@ async function runHandler(args: RunArgs): Promise<void> {
 
 export const RunCommand: CommandModule<object, RunArgs> = {
   command: "run [message..]",
-  describe: "run lotus-code with a message",
+  describe: "run neko with a message",
 
   builder: (yargs: Argv) =>
     yargs

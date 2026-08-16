@@ -10,9 +10,9 @@ export class GcpConfig extends Context.Service<GcpConfig, GcpConfigShape>()("@gc
     Layer.effect(
       GcpConfig,
       Effect.gen(function* () {
-        const projectId = yield* Config.string("LOTUS_PROJECT_ID")
+        const projectId = yield* Config.string("NEKO_PROJECT_ID")
         const region = yield* Config.withDefault(
-          Config.string("LOTUS_REGION"),
+          Config.string("NEKO_REGION"),
           "us-central1",
         )
         return { projectId, region }

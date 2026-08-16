@@ -1,7 +1,7 @@
 /**
  * BashTool — shell command execution.
  *
- * Ported from @lotus-code/core tool/bash.ts.
+ * Ported from @neko/core tool/bash.ts.
  * Logic is kept identical: 2-minute default timeout, 10-minute max, 1 MB output cap.
  */
 export * as BashTool from "./BashTool"

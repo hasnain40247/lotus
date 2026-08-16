@@ -1,7 +1,7 @@
 /**
  * tui-server.ts — in-process HTTP server for the TUI client.
  *
- * Implements the lotus-code-compatible REST + SSE API that @gco/view-tui
+ * Implements the neko-compatible REST + SSE API that @gco/view-tui
  * connects to. Routes are backed by real Effect services passed in from
  * TuiCommand (which runs them inside a single Effect scope so their
  * lifecycle stays tied to the TUI session).
@@ -189,9 +189,9 @@ function buildOpenApiSpec(port: number): object {
   return {
     openapi: "3.0.3",
     info: {
-      title: "lotus-code API",
+      title: "neko API",
       version: "0.1.0",
-      description: "In-process HTTP API served by the lotus-code TUI server. Poll `GET /debug/session/{id}/events` to read LLM responses after submitting a prompt.",
+      description: "In-process HTTP API served by the neko TUI server. Poll `GET /debug/session/{id}/events` to read LLM responses after submitting a prompt.",
     },
     servers: [{ url: `http://localhost:${port}`, description: "Local TUI server" }],
     tags: [
@@ -217,7 +217,7 @@ function buildOpenApiSpec(port: number): object {
           responses: { "200": { description: "Current config", content: { "application/json": { schema: { type: "object", properties: { model: { type: "string", example: "deepseek/deepseek-chat" } } } } } } },
         },
         patch: {
-          tags: ["Health & Config"], summary: "Update config (persists model to lotus-code.json)",
+          tags: ["Health & Config"], summary: "Update config (persists model to neko.json)",
           requestBody: { content: { "application/json": { schema: { type: "object", properties: { model: { type: "string", example: "deepseek/deepseek-chat" } } } } } },
           responses: { "200": { description: "Merged config" } },
         },
@@ -357,7 +357,7 @@ function buildOpenApiSpec(port: number): object {
       "/mcp": {
         get: { tags: ["MCP"], summary: "List MCP servers with status, config, and tools", responses: { "200": { description: "{ servers[], connected: number }" } } },
         post: {
-          tags: ["MCP"], summary: "Add and connect a new MCP server — persists to lotus-code.json",
+          tags: ["MCP"], summary: "Add and connect a new MCP server — persists to neko.json",
           requestBody: {
             required: true,
             content: {
@@ -411,7 +411,7 @@ function buildOpenApiSpec(port: number): object {
           responses: { "200": { description: "Server object with status, config, and tools" }, "404": { description: "Not found" } },
         },
         delete: {
-          tags: ["MCP"], summary: "Disconnect and remove an MCP server from lotus-code.json",
+          tags: ["MCP"], summary: "Disconnect and remove an MCP server from neko.json",
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
           responses: { "200": { description: "{ name, removed: true }" } },
         },
@@ -471,10 +471,10 @@ const SWAGGER_HTML = (specUrl: string) => `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>lotus-code API</title>
+  <title>neko API</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
-  <style>body { margin: 0; } .swagger-ui .topbar { background: #1a1a2e; } .swagger-ui .topbar-wrapper img { content: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>'); } .swagger-ui .topbar-wrapper .link::after { content: 'lotus-code API'; color: white; font-weight: bold; font-size: 1.2em; margin-left: 8px; }</style>
+  <style>body { margin: 0; } .swagger-ui .topbar { background: #1a1a2e; } .swagger-ui .topbar-wrapper img { content: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>'); } .swagger-ui .topbar-wrapper .link::after { content: 'neko API'; color: white; font-weight: bold; font-size: 1.2em; margin-left: 8px; }</style>
 </head>
 <body>
   <div id="swagger-ui"></div>
@@ -1182,10 +1182,10 @@ function handleRequest(
       try {
         const body = await req.json() as Record<string, unknown>
         Object.assign(configOverride, body)
-        // Persist model change to lotus-code.json if present
+        // Persist model change to neko.json if present
         if (body.model && typeof body.model === "string") {
           try {
-            const cfgPath = path.join(directory, "lotus-code.json")
+            const cfgPath = path.join(directory, "neko.json")
             const file = Bun.file(cfgPath)
             const existing = await file.exists() ? await file.json().catch(() => ({})) : {}
             existing.model = body.model
@@ -1255,7 +1255,7 @@ function handleRequest(
     })()
   }
 
-  // POST /agent — create a new agent (persists to lotus-code.json + registers at runtime)
+  // POST /agent — create a new agent (persists to neko.json + registers at runtime)
   // Body: { name: string, description?: string, system?: string, mode?: "primary"|"subagent"|"all", model?: string }
   if (pathname === "/agent" && method === "POST") {
     return (async () => {
@@ -1267,9 +1267,9 @@ function handleRequest(
       if (override.mode && !["primary", "subagent", "all"].includes(override.mode))
         return json({ error: "mode must be 'primary', 'subagent', or 'all'" }, 400)
 
-      // Persist to lotus-code.json under `agents` key
+      // Persist to neko.json under `agents` key
       try {
-        const cfgPath = path.join(directory, "lotus-code.json")
+        const cfgPath = path.join(directory, "neko.json")
         const file = Bun.file(cfgPath)
         const existing = await file.exists() ? await file.json().catch(() => ({})) : {}
         existing.agents = existing.agents ?? {}
@@ -1294,7 +1294,7 @@ function handleRequest(
         return json({ error: `Cannot delete built-in agent '${name}'` }, 400)
 
       try {
-        const cfgPath = path.join(directory, "lotus-code.json")
+        const cfgPath = path.join(directory, "neko.json")
         const file = Bun.file(cfgPath)
         if (await file.exists()) {
           const existing = await file.json().catch(() => ({}))
@@ -1662,12 +1662,12 @@ function handleRequest(
   if (pathname === "/permission" && method === "GET") return json([])
   if (pathname === "/question" && method === "GET") return json([])
 
-  // ── CLI verbs — shell subcommands exposed by the `lotus-code` binary.
+  // ── CLI verbs — shell subcommands exposed by the `neko` binary.
   // These are yargs commands you run from a terminal, not TUI palette actions.
   // For TUI slash-palette actions, see GET /slash-command.
   if (pathname === "/command" && method === "GET") {
     return json([
-      { name: "run [message..]",          description: "Run lotus-code with a message (non-interactive)" },
+      { name: "run [message..]",          description: "Run neko with a message (non-interactive)" },
       { name: "session list",             description: "List sessions" },
       { name: "session delete",           description: "Delete a session" },
       { name: "export [sessionID]",       description: "Export session data to GCS" },
@@ -1679,8 +1679,8 @@ function handleRequest(
       { name: "providers list",           description: "List providers and credentials" },
       { name: "models [provider]",        description: "List all available models" },
       { name: "db path",                  description: "Print Firestore project and collection information" },
-      { name: "upgrade [target]",         description: "Upgrade lotus-code to the latest or a specific version" },
-      { name: "uninstall",                description: "Uninstall lotus-code and remove all related files" },
+      { name: "upgrade [target]",         description: "Upgrade neko to the latest or a specific version" },
+      { name: "uninstall",                description: "Uninstall neko and remove all related files" },
     ])
   }
 
@@ -1716,7 +1716,7 @@ function handleRequest(
     })()
   }
 
-  // POST /mcp — add a new MCP server (persists to lotus-code.json + connects immediately)
+  // POST /mcp — add a new MCP server (persists to neko.json + connects immediately)
   // Body: { name: string, type: "local", command: string[], cwd?: string }
   //    or { name: string, type: "remote", url: string, headers?: Record<string,string> }
   if (pathname === "/mcp" && method === "POST") {
@@ -1732,9 +1732,9 @@ function handleRequest(
       if (config.type === "remote" && !config.url)
         return json({ error: "url is required for remote servers" }, 400)
 
-      // Persist to lotus-code.json
+      // Persist to neko.json
       try {
-        const cfgPath = path.join(directory, "lotus-code.json")
+        const cfgPath = path.join(directory, "neko.json")
         const file = Bun.file(cfgPath)
         const existing = await file.exists() ? await file.json().catch(() => ({})) : {}
         existing.mcp = existing.mcp ?? {}
@@ -1757,14 +1757,14 @@ function handleRequest(
     })()
   }
 
-  // DELETE /mcp/:name — disconnect and remove from lotus-code.json
+  // DELETE /mcp/:name — disconnect and remove from neko.json
   const mcpDeleteMatch = pathname.match(/^\/mcp\/([^/]+)$/)
   if (mcpDeleteMatch && method === "DELETE") {
     const name = decodeURIComponent(mcpDeleteMatch[1]!)
     return (async () => {
       await services.removeMcp(name).catch(() => {})
       try {
-        const cfgPath = path.join(directory, "lotus-code.json")
+        const cfgPath = path.join(directory, "neko.json")
         const file = Bun.file(cfgPath)
         if (await file.exists()) {
           const existing = await file.json().catch(() => ({}))
@@ -1832,11 +1832,11 @@ function handleRequest(
   // ── Path ──────────────────────────────────────────────────────────────────
   if (pathname === "/path" && method === "GET") {
     const home = os.homedir()
-    const state = path.join(home, ".local", "share", "lotus-code")
+    const state = path.join(home, ".local", "share", "neko")
     return json({
       home,
       state,
-      config: path.join(home, ".config", "lotus-code"),
+      config: path.join(home, ".config", "neko"),
       worktree: path.join(state, "worktree"),
       directory,
     })
@@ -1932,7 +1932,7 @@ function handleRequest(
 const DEFAULT_PORT = 60100
 
 export function startTuiServer(directory: string, services: TuiServerServices): Server<undefined> {
-  const port = Number(process.env.LOTUS_SERVER_PORT ?? DEFAULT_PORT)
+  const port = Number(process.env.NEKO_SERVER_PORT ?? DEFAULT_PORT)
   let serverPort = port
   const server = Bun.serve({
     port,

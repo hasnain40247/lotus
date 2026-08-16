@@ -407,7 +407,7 @@ describe("GET /path", () => {
     expect(body).toHaveProperty("worktree")
     expect(body).toHaveProperty("directory")
     expect(body.directory).toBe("/tmp/test")
-    expect(body.state).toContain("lotus-code")
+    expect(body.state).toContain("neko")
   })
 })
 

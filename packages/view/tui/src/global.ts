@@ -2,7 +2,7 @@ import path from "path"
 import os from "os"
 import { mkdir } from "fs/promises"
 
-const app = "lotus-code"
+const app = "neko"
 
 const xdgData = process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share")
 const xdgCache = process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache")
@@ -18,7 +18,7 @@ const tmp = path.join(os.tmpdir(), app)
 export const Global = {
   Path: {
     get home() {
-      return process.env.LOTUS_TEST_HOME ?? os.homedir()
+      return process.env.NEKO_TEST_HOME ?? os.homedir()
     },
     data,
     bin: path.join(cache, "bin"),
@@ -39,8 +39,8 @@ await Promise.all([
   mkdir(path.join(cache, "bin"), { recursive: true }),
 ]).catch(() => {})
 
-export const InstallationVersion = typeof (globalThis as any).LOTUS_VERSION === "string"
-  ? (globalThis as any).LOTUS_VERSION
-  : typeof (globalThis as any).LOTUS_VERSION === "string"
-  ? (globalThis as any).LOTUS_VERSION
+export const InstallationVersion = typeof (globalThis as any).NEKO_VERSION === "string"
+  ? (globalThis as any).NEKO_VERSION
+  : typeof (globalThis as any).NEKO_VERSION === "string"
+  ? (globalThis as any).NEKO_VERSION
   : "local"

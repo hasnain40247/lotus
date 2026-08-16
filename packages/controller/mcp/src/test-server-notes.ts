@@ -65,7 +65,7 @@ const TOOLS = [
 ]
 
 const server = new Server(
-  { name: "lotus-code-test-notes-server", version: "0.1.0" },
+  { name: "neko-test-notes-server", version: "0.1.0" },
   { capabilities: { tools: {} } },
 )
 

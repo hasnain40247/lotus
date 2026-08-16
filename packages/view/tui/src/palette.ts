@@ -1,7 +1,7 @@
 /**
  * palette.ts — shared theme palette for the TUI.
  *
- * Reads ~/.lotus-code/config.json synchronously at module load to pick the
+ * Reads ~/.neko/config.json synchronously at module load to pick the
  * active theme (light | dark). Both app.tsx and the overlay components
  * (slash/mention/agent/mcp/theme palettes) import from here so a theme
  * switch flows through everywhere on next launch.
@@ -47,7 +47,7 @@ export const DARK_PALETTE: Palette = {
   userBg: "#333330",
 }
 
-export const GLOBAL_CONFIG_PATH = path.join(os.homedir(), ".lotus-code", "config.json")
+export const GLOBAL_CONFIG_PATH = path.join(os.homedir(), ".neko", "config.json")
 
 export function readGlobalConfig(): { theme?: ThemeName } {
   try {

@@ -1,5 +1,5 @@
 import { render, useRenderer } from "@opentui/solid"
-import { registerLotusCodeSpinner } from "./component/register-spinner"
+import { registerNekoSpinner } from "./component/register-spinner"
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { Deferred, Effect } from "effect"
 import { Flag } from "./flag"
@@ -21,13 +21,14 @@ import {
 import { createStore } from "solid-js/store"
 import { ErrorComponent } from "./component/error-component"
 import { SDKProvider, useSDK } from "./context/sdk"
-import { registerLotusCodeKeymap } from "./keymap"
+import { registerNekoKeymap } from "./keymap"
 import { SlashPalette, PALETTE_VIEWPORT, filterSlashCommands } from "./component/slash-palette"
 import { AgentPalette, type AgentPaletteItem, type AgentPalettePhase } from "./component/agent-palette"
 import { MentionPalette, MENTION_VIEWPORT } from "./component/mention-palette"
 import { McpPalette, type McpPaletteItem, type McpPalettePhase } from "./component/mcp-palette"
 import { ThemePalette, type ThemePaletteItem, type ThemeName } from "./component/theme-palette"
-import { lotusArt } from "./logo"
+import { nekoCells, nekoLabel, rgbHex } from "./logo"
+import { AnimatedCat } from "./component/logo"
 import {
   ACTIVE_THEME, GLOBAL_CONFIG_PATH, LIGHT_PALETTE, DARK_PALETTE, PALETTE,
   C_BG, C_EGG, C_WHITE, C_DIM, C_MUTED, C_INPUT, C_ACCENT, C_USER_BG,
@@ -42,7 +43,7 @@ import { win32DisableProcessedInput, win32FlushInputBuffer } from "./terminal-wi
 import { destroyRenderer } from "./util/renderer"
 import { cliErrorMessage, errorFormat } from "./util/error"
 
-registerLotusCodeSpinner()
+registerNekoSpinner()
 
 // Palette / theme state comes from ./palette (see readGlobalConfig).
 
@@ -200,7 +201,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
               useKittyKeyboard: {},
               autoFocus: false,
               openConsoleOnError: false,
-              useMouse: !Flag.LOTUS_DISABLE_MOUSE && input.config.mouse,
+              useMouse: !Flag.NEKO_DISABLE_MOUSE && input.config.mouse,
               consoleOptions: {
                 keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
               },
@@ -215,7 +216,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       win32DisableProcessedInput()
       const keymap = createDefaultOpenTuiKeymap(renderer)
       yield* Effect.acquireRelease(
-        Effect.sync(() => registerLotusCodeKeymap(keymap, renderer, input.config)),
+        Effect.sync(() => registerNekoKeymap(keymap, renderer, input.config)),
         (unregister) => Effect.sync(unregister),
       )
       const shutdown = yield* Deferred.make<unknown>()
@@ -724,7 +725,7 @@ function Chat() {
 
   // ── Landing hero → chat transition ───────────────────────────────────────
   // When there are no messages yet, we show a centered landing screen with
-  // the animated lotus ASCII + a "lotus" wordmark under the input. On the
+  // the animated neko ASCII + a "neko" wordmark under the input. On the
   // user's first submit we run a ~500ms transition: the ASCII fades to
   // background, the centered wordmark fades out while a corner wordmark
   // fades in, and a flexGrow spacer under the input collapses so the input
@@ -743,69 +744,17 @@ function Chat() {
     onCleanup(() => clearInterval(raf))
   })
 
-  // Lotus eye blinking — reuses the layout from component/logo.tsx: row 7
-  // of the ASCII holds the eyes at char offsets 8-9 (left) + 14-15 (right).
-  const LOTUS_EYE_ROW = 7
-  const eyeLineChars = Array.from(lotusArt[LOTUS_EYE_ROW] ?? "")
-  const EYE_PREFIX = eyeLineChars.slice(0, 8).join("")
-  const LEFT_EYE_OPEN = eyeLineChars.slice(8, 10).join("")
-  const EYE_MIDDLE = eyeLineChars.slice(10, 14).join("")
-  const RIGHT_EYE_OPEN = eyeLineChars.slice(14, 16).join("")
-  const EYE_SUFFIX = eyeLineChars.slice(16).join("")
-  const LEFT_EYE_CLOSED = "⠒⠒"
-  const RIGHT_EYE_CLOSED = "⠒⠒"
-  const [eyesOpen, setEyesOpen] = createSignal(true)
-  createEffect(() => {
-    if (hasStartedChat()) return   // stop blinking once we've transitioned
-    let closeTimer: ReturnType<typeof setTimeout>
-    let openTimer: ReturnType<typeof setTimeout>
-    const schedule = () => {
-      closeTimer = setTimeout(() => {
-        setEyesOpen(false)
-        openTimer = setTimeout(() => {
-          setEyesOpen(true)
-          schedule()
-        }, 130)
-      }, 2500 + Math.random() * 2000)
-    }
-    schedule()
-    onCleanup(() => {
-      clearTimeout(closeTimer)
-      clearTimeout(openTimer)
-    })
-  })
-  const lotusRowText = (row: string, i: number) => {
-    if (i !== LOTUS_EYE_ROW) return row
-    return (
-      EYE_PREFIX +
-      (eyesOpen() ? LEFT_EYE_OPEN : LEFT_EYE_CLOSED) +
-      EYE_MIDDLE +
-      (eyesOpen() ? RIGHT_EYE_OPEN : RIGHT_EYE_CLOSED) +
-      EYE_SUFFIX
-    )
-  }
-
-  // Popping pink used for both the centered and corner "lotus" wordmarks.
-  const LOTUS_PINK = { r: 0xE6, g: 0x3D, b: 0x8A }   // hot rose — pops on either palette
+  // Popping pink used for both the centered and corner "neko" wordmarks.
+  const NEKO_PINK = { r: 0xE6, g: 0x3D, b: 0x8A }   // hot rose — pops on either palette
 
   // Fade interpolation targets against the active theme's bg color so the
   // "fade to invisible" effect actually blends with the surface.
   const bgRgb = () => parseHex(PALETTE.bg)
 
-  const lotusFadeColor = () => {
-    const t = transitionT()
-    return RGBA.fromHex(blendHex(LOTUS_PINK, bgRgb(), t))
-  }
   const centerLabelColor = () => {
     const t = transitionT()
-    return RGBA.fromHex(blendHex(LOTUS_PINK, bgRgb(), t))
+    return RGBA.fromHex(blendHex(NEKO_PINK, bgRgb(), t))
   }
-  const cornerLabelColor = () => {
-    // Reverse — bg → pink as t → 1.
-    const t = hasStartedChat() ? transitionT() : 0
-    return RGBA.fromHex(blendHex(bgRgb(), LOTUS_PINK, t))
-  }
-
   // Weird circular symbol next to the spinner word — cycles fast through a
   // grab-bag of dots, half-circles, asterisks and braille dots.
   const [spinnerSymbol, setSpinnerSymbol] = createSignal(pickSpinnerSymbol())
@@ -2038,24 +1987,6 @@ function Chat() {
 
   return (
     <box flexDirection="column" flexGrow={1} backgroundColor={C_BG}>
-      {/* Corner wordmark — fades in as the landing transition completes. */}
-      <Show when={hasStartedChat()}>
-        <box
-          flexShrink={0}
-          flexDirection="row"
-          justifyContent="flex-end"
-          paddingLeft={3}
-          paddingRight={3}
-          paddingTop={1}
-          paddingBottom={1}
-          backgroundColor={C_BG}
-        >
-          <text fg={cornerLabelColor()} attributes={TextAttributes.BOLD}>
-            lotus
-          </text>
-        </box>
-      </Show>
-
       {/* Messages */}
       <scrollbox
         ref={(r: any) => (scrollEl = r)}
@@ -2066,25 +1997,61 @@ function Chat() {
         verticalScrollbarOptions={{ visible: false }}
       >
         <box height={1} />
-        {/* Landing hero — centered ASCII lotus + wordmark, sits directly
-            above the input while fresh; fades out during the transition. */}
-        <Show when={transitionT() < 1}>
+        {/* Landing hero — sits above the input while fresh; unmounts
+            immediately on send so it can't drift while the layout reflows. */}
+        <Show when={!hasStartedChat()}>
           <box
-            flexGrow={1}
+            flexShrink={0}
             flexDirection="column"
-            justifyContent="flex-end"
             alignItems="center"
+            paddingTop={7}
             paddingBottom={1}
           >
-            <For each={lotusArt}>
-              {(row, i) => (
-                <text fg={lotusFadeColor()}>{lotusRowText(row, i())}</text>
+            <For each={nekoCells}>
+              {(row) => (
+                <text>
+                  <For each={row}>
+                    {(cell) => (
+                      <span style={{ fg: rgbHex(cell.fg), bg: rgbHex(cell.bg) }}>{cell.ch}</span>
+                    )}
+                  </For>
+                </text>
               )}
             </For>
             <box height={1} />
-            <text fg={centerLabelColor()} attributes={TextAttributes.BOLD}>
-              lotus
-            </text>
+            <For each={nekoLabel}>
+              {(line) => (
+                <text fg={centerLabelColor()} attributes={TextAttributes.BOLD}>
+                  {line}
+                </text>
+              )}
+            </For>
+          </box>
+        </Show>
+        {/* Animated neko perched on its own dark band — sits at the top of
+            the scroll content so it scrolls away as the conversation grows. */}
+        <Show when={hasStartedChat()}>
+          <box flexShrink={0} flexDirection="column">
+            <box
+              flexShrink={0}
+              flexDirection="row"
+              justifyContent="flex-end"
+              paddingRight={2}
+              marginBottom={-1}
+              zIndex={2000}
+            >
+              <AnimatedCat />
+            </box>
+            <box
+              height={1}
+              flexDirection="row"
+              justifyContent="flex-end"
+              paddingLeft={2}
+              paddingRight={2}
+              backgroundColor={C_MUTED}
+            >
+              <text attributes={TextAttributes.BOLD} fg={C_BG}>NEKO</text>
+            </box>
           </box>
         </Show>
         <For each={store.msgOrder}>

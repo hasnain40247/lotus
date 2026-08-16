@@ -29,6 +29,7 @@ import {
 import * as AnthropicProvider from "@gco/llm/providers/anthropic"
 import * as DeepSeekProvider from "@gco/llm/providers/deepseek"
 import * as OllamaProvider from "@gco/llm/providers/ollama"
+import * as OpenAIProvider from "@gco/llm/providers/openai"
 
 // Model layer
 import { FirestoreModelLayer } from "@gco/model-firestore"
@@ -122,6 +123,19 @@ const multiProviderModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConf
         const apiKey = process.env.ANTHROPIC_API_KEY
         const ap = AnthropicProvider.configure({ apiKey })
         return Effect.succeed(ap.model(modelId) as unknown as Model)
+      }
+
+      const isOpenAI =
+        providerID === "openai" ||
+        modelId.startsWith("gpt-") ||
+        modelId.startsWith("o1") ||
+        modelId.startsWith("o3") ||
+        modelId.startsWith("o4")
+
+      if (isOpenAI) {
+        const apiKey = process.env.OPENAI_API_KEY
+        const oa = OpenAIProvider.configure({ apiKey })
+        return Effect.succeed(oa.model(modelId) as unknown as Model)
       }
 
       const isOllama = providerID === "ollama"

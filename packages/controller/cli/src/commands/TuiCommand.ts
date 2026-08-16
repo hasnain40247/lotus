@@ -343,6 +343,7 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
           }
           if (providerID === "deepseek")  process.env.DEEPSEEK_API_KEY  = key
           if (providerID === "anthropic") process.env.ANTHROPIC_API_KEY = key
+          if (providerID === "openai")    process.env.OPENAI_API_KEY    = key
           // Persist to neko.json so the key survives restarts — the startup
           // path in this same file (line ~155) reads `provider.<id>.apiKey`
           // and re-hydrates the env var.

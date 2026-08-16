@@ -577,15 +577,35 @@ function ollamaProvider(): object {
   }
 }
 
+function openaiProvider(): object {
+  const connected = Boolean(process.env.OPENAI_API_KEY)
+  return {
+    id: "openai",
+    name: "OpenAI",
+    source: "config",
+    env: ["OPENAI_API_KEY"],
+    key: connected ? "***" : undefined,
+    options: {},
+    models: {
+      "gpt-5.6":      { id: "gpt-5.6",      name: "GPT-5.6",       release: "2026", context: 400000, limit: { context: 400000, output: 32000 } },
+      "gpt-5.4":      { id: "gpt-5.4",      name: "GPT-5.4",       release: "2026", context: 400000, limit: { context: 400000, output: 32000 } },
+      "gpt-5.4-mini": { id: "gpt-5.4-mini", name: "GPT-5.4 mini",  release: "2026", context: 400000, limit: { context: 400000, output: 16000 } },
+      "o4-mini":      { id: "o4-mini",      name: "o4-mini",       release: "2025", context: 200000, limit: { context: 200000, output: 16000 } },
+    },
+  }
+}
+
 function providerListResponse(connectedIntegrations: string[] = []): object {
   const ds = deepseekProvider() as any
   const ap = anthropicProvider() as any
+  const oa = openaiProvider() as any
   const ol = ollamaProvider() as any
-  const all = [ds, ap, ol]
+  const all = [ds, ap, oa, ol]
   const connected = all
     .filter((p) => {
       if (p.id === "deepseek")  return Boolean(process.env.DEEPSEEK_API_KEY)  || connectedIntegrations.includes("deepseek")
       if (p.id === "anthropic") return Boolean(process.env.ANTHROPIC_API_KEY) || connectedIntegrations.includes("anthropic")
+      if (p.id === "openai")    return Boolean(process.env.OPENAI_API_KEY)    || connectedIntegrations.includes("openai")
       if (p.id === "ollama")    return true
       return false
     })
@@ -593,7 +613,7 @@ function providerListResponse(connectedIntegrations: string[] = []): object {
   return {
     all,
     providers: all,
-    default: { deepseek: "deepseek-v4-flash", anthropic: "claude-sonnet-4" },
+    default: { deepseek: "deepseek-v4-flash", anthropic: "claude-sonnet-4-6", openai: "gpt-5.4-mini" },
     connected,
   }
 }

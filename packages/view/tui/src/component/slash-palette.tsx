@@ -1,4 +1,5 @@
 import { For, Show, type Accessor } from "solid-js"
+import { TextAttributes } from "@opentui/core"
 import { SlashCommand as SlashCommandSchema } from "@gco/schema"
 import {
   C_OVERLAY_BG as C_BG,
@@ -6,14 +7,23 @@ import {
   C_OVERLAY_TEXT as C_TEXT,
   C_OVERLAY_DIM as C_DIM,
   C_OVERLAY_SELECT as C_SEL_BG,
+  C_OVERLAY_ACCENT as C_ACCENT,
 } from "../palette"
 
 export type SlashCommand = SlashCommandSchema.Info
 export const SLASH_COMMANDS: readonly SlashCommand[] = SlashCommandSchema.registry
 
+// Active commands first (alphabetical), then todo (alphabetical). This lets
+// the palette split into two visible sections without any per-render sort.
+const statusRank = (c: SlashCommand): number => (c.status === "todo" ? 1 : 0)
+
 export function filterSlashCommands(query: string): SlashCommand[] {
   const q = query.trim().toLowerCase()
-  if (!q) return [...SLASH_COMMANDS].sort((a, b) => a.name.localeCompare(b.name))
+  if (!q) {
+    return [...SLASH_COMMANDS].sort(
+      (a, b) => statusRank(a) - statusRank(b) || a.name.localeCompare(b.name),
+    )
+  }
 
   const matches: Array<{ cmd: SlashCommand; score: number }> = []
   for (const cmd of SLASH_COMMANDS) {
@@ -33,11 +43,21 @@ export function filterSlashCommands(query: string): SlashCommand[] {
 
 export const PALETTE_VIEWPORT = 8
 
+// A rendered row is either a section heading (non-selectable) or a command.
+// `itemIndex` on `cmd` rows lines up with the selection index kept in app.tsx,
+// so the flat command index passed in via `selected` still works.
+type Row =
+  | { kind: "heading"; label: string }
+  | { kind: "cmd"; cmd: SlashCommand; itemIndex: number }
+
 export function SlashPalette(props: {
   visible: Accessor<boolean>
   commands: Accessor<SlashCommand[]>
   selected: Accessor<number>
   scrollTop: Accessor<number>
+  /** When true, insert "Active" / "To do" headings and render everything (no
+   *  windowing). Should be true only when the query is empty. */
+  grouped: Accessor<boolean>
   maxNameWidth?: number
 }) {
   const namePad = () => {
@@ -47,9 +67,40 @@ export function SlashPalette(props: {
     return max + 1
   }
 
-  const windowed = () => props.commands().slice(props.scrollTop(), props.scrollTop() + PALETTE_VIEWPORT)
-  const showMoreAbove = () => props.scrollTop() > 0
-  const showMoreBelow = () => props.scrollTop() + PALETTE_VIEWPORT < props.commands().length
+  const rows = (): Row[] => {
+    const cmds = props.commands()
+    if (!props.grouped()) {
+      return cmds.map((cmd, i) => ({ kind: "cmd" as const, cmd, itemIndex: i }))
+    }
+    const active: Row[] = []
+    const todo: Row[] = []
+    cmds.forEach((cmd, i) => {
+      const row = { kind: "cmd" as const, cmd, itemIndex: i }
+      if (cmd.status === "todo") todo.push(row)
+      else active.push(row)
+    })
+    const out: Row[] = []
+    if (active.length > 0) {
+      out.push({ kind: "heading", label: "Active" })
+      out.push(...active)
+    }
+    if (todo.length > 0) {
+      out.push({ kind: "heading", label: "To do" })
+      out.push(...todo)
+    }
+    return out
+  }
+
+  // Grouped mode renders everything (max ~18 rows). Flat mode still windows.
+  const windowed = () => {
+    const rs = rows()
+    if (props.grouped()) return rs
+    return rs.slice(props.scrollTop(), props.scrollTop() + PALETTE_VIEWPORT)
+  }
+  const showMoreAbove = () => !props.grouped() && props.scrollTop() > 0
+  const showMoreBelow = () =>
+    !props.grouped() &&
+    props.scrollTop() + PALETTE_VIEWPORT < props.commands().length
 
   return (
     <Show when={props.visible()}>
@@ -75,8 +126,17 @@ export function SlashPalette(props: {
             </box>
           </Show>
           <For each={windowed()}>
-            {(cmd, i) => {
-              const isSel = () => i() + props.scrollTop() === props.selected()
+            {(row) => {
+              if (row.kind === "heading") {
+                return (
+                  <box flexDirection="row" paddingLeft={1} paddingRight={1} marginTop={1}>
+                    <text fg={C_ACCENT} attributes={TextAttributes.BOLD}>
+                      {row.label}
+                    </text>
+                  </box>
+                )
+              }
+              const isSel = () => row.itemIndex === props.selected()
               return (
                 <box
                   flexDirection="row"
@@ -85,10 +145,10 @@ export function SlashPalette(props: {
                   backgroundColor={isSel() ? C_SEL_BG : undefined}
                 >
                   <text fg={C_TEXT} flexShrink={0}>
-                    {("/" + cmd.name).padEnd(namePad() + 1)}
+                    {("/" + row.cmd.name).padEnd(namePad() + 1)}
                   </text>
                   <text fg={C_DIM} wrapMode="none">
-                    {cmd.description}
+                    {row.cmd.description}
                   </text>
                 </box>
               )

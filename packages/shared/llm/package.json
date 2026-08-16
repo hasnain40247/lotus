@@ -13,6 +13,7 @@
     "./providers/anthropic": "./src/providers/anthropic.ts",
     "./providers/deepseek": "./src/providers/deepseek.ts",
     "./providers/ollama": "./src/providers/ollama.ts",
+    "./providers/openai": "./src/providers/openai.ts",
     "./providers/vertex": "./src/providers/vertex.ts",
     "./protocols": "./src/protocols/index.ts",
     "./protocols/anthropic-messages": "./src/protocols/anthropic-messages.ts",
@@ -28,7 +29,8 @@
     "@gco/schema": "workspace:*",
     "ai": "^7.0.66",
     "@ai-sdk/anthropic": "^4.0.39",
-    "@ai-sdk/deepseek": "^3.0.28"
+    "@ai-sdk/deepseek": "^3.0.28",
+    "@ai-sdk/openai": "^4.0.42"
   },
   "devDependencies": {
     "@tsconfig/bun": "^1.0.7",

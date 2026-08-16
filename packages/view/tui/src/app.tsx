@@ -1461,6 +1461,16 @@ function Chat() {
         { providerID: "anthropic", modelID: "claude-haiku-4-5",  label: "claude-haiku-4-5" },
       ],
     },
+    {
+      providerID: "openai",
+      heading: "openai",
+      items: [
+        { providerID: "openai", modelID: "gpt-5.6",       label: "gpt-5.6" },
+        { providerID: "openai", modelID: "gpt-5.4",       label: "gpt-5.4" },
+        { providerID: "openai", modelID: "gpt-5.4-mini",  label: "gpt-5.4-mini" },
+        { providerID: "openai", modelID: "o4-mini",       label: "o4-mini" },
+      ],
+    },
   ]
 
   const [modelsModalOpen, setModelsModalOpen] = createSignal(false)
@@ -2668,6 +2678,7 @@ function Chat() {
         commands={paletteMatches}
         selected={paletteIndex}
         scrollTop={paletteScrollTop}
+        grouped={() => paletteQuery().trim() === ""}
       />
 
       {/* Agent modal (opens on /agent) */}
@@ -2783,6 +2794,8 @@ function Chat() {
           flexShrink={0}
           flexDirection="row"
           justifyContent="space-between"
+          paddingTop={1}
+          paddingBottom={1}
           paddingLeft={2}
           paddingRight={2}
           backgroundColor={C_BG}

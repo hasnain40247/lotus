@@ -43,6 +43,14 @@ export {
 } from "./ToolPermissionEnforcer"
 export type { Interface as ToolPermissionEnforcerInterface } from "./ToolPermissionEnforcer"
 
+export { PermissionStore, permissionPrompter } from "./PermissionStore"
+export type {
+  PermissionAskInput,
+  PermissionRequestInfo,
+  PermissionReply,
+  PermissionStoreCallbacks,
+} from "./PermissionStore"
+
 // ─── Tool modules ────────────────────────────────────────────────────────────
 
 export { BashTool } from "./tools/BashTool"

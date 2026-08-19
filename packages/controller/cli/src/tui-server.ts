@@ -56,6 +56,8 @@ export interface TuiServerServices {
   readonly listQuestions: (sessionID: string) => Promise<Array<{ id: string; sessionID: string; questions: readonly any[]; tool: any }>>
   readonly replyQuestion: (requestID: string, answers: ReadonlyArray<ReadonlyArray<string>>) => Promise<void>
   readonly rejectQuestion: (requestID: string) => Promise<void>
+  readonly listPermissions: (sessionID?: string) => Promise<Array<{ id: string; sessionID: string; permission: string; patterns: readonly string[]; always: readonly string[]; metadata: Record<string, unknown>; tool?: { messageID: string; callID: string } }>>
+  readonly replyPermission: (requestID: string, reply: "once" | "always" | "reject") => Promise<void>
 }
 
 // In-memory config override (set via PATCH /config)
@@ -66,7 +68,7 @@ let configOverride: Record<string, unknown> = {}
 type SSESend = (raw: string) => void
 const sseClients = new Set<SSESend>()
 
-function broadcastSSE(globalEvent: object): void {
+export function broadcastSSE(globalEvent: object): void {
   const raw = `data: ${JSON.stringify(globalEvent)}\n\n`
   for (const send of sseClients) send(raw)
 }
@@ -1685,12 +1687,42 @@ function handleRequest(
     const sid = pathname.split("/")[2]!
     return (async () => {
       await services.abortSession(sid).catch(() => {})
+      // Runner may still be mid-step when the abort lands, but the user has
+      // signalled "stop" — flip the UI to idle immediately so the spinner and
+      // turn timer don't linger while the current step drains.
+      broadcastSSE({
+        directory,
+        payload: {
+          id: `abort_${Date.now()}`,
+          type: "session.status",
+          properties: { sessionID: sid, status: { type: "idle" } },
+        },
+      })
       return json({})
     })()
   }
 
   // ── Permissions / Questions ───────────────────────────────────────────────
-  if (pathname === "/permission" && method === "GET") return json([])
+  if (pathname === "/permission" && method === "GET") {
+    return (async () => {
+      const list = await services.listPermissions().catch(() => [])
+      return json(list)
+    })()
+  }
+  const permissionReplyMatch = pathname.match(/^\/permission\/([^/]+)\/reply$/)
+  if (permissionReplyMatch && method === "POST") {
+    const requestID = decodeURIComponent(permissionReplyMatch[1]!)
+    return (async () => {
+      let body: any = {}
+      try { body = await req.json() } catch {}
+      const reply = body?.reply
+      if (reply !== "once" && reply !== "always" && reply !== "reject") {
+        return json({ error: "reply must be one of once|always|reject" }, 400)
+      }
+      await services.replyPermission(requestID, reply).catch(() => {})
+      return json({})
+    })()
+  }
   if (pathname === "/question" && method === "GET") return json([])
 
   // ── CLI verbs — shell subcommands exposed by the `neko` binary.
@@ -1930,9 +1962,15 @@ function handleRequest(
     })()
   }
 
-  // ── V2 permission endpoints (pending requests — stub empty) ───────────────
+  // ── V2 permission endpoints ───────────────────────────────────────────────
   const v2PermissionListMatch = pathname.match(/^\/v2\/session\/([^/]+)\/permission$/)
-  if (v2PermissionListMatch && method === "GET") return json({ data: [] })
+  if (v2PermissionListMatch && method === "GET") {
+    const sessionID = decodeURIComponent(v2PermissionListMatch[1]!)
+    return (async () => {
+      const list = await services.listPermissions(sessionID).catch(() => [])
+      return json({ data: list })
+    })()
+  }
 
   // ── Experimental endpoints (stub responses) ────────────────────────────────
   if (pathname === "/experimental/capabilities" && method === "GET")

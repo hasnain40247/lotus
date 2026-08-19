@@ -28,11 +28,12 @@ import {
 import { McpController } from "@gco/controller-mcp"
 import { QuestionTool, ToolRegistryService } from "@gco/controller-tool"
 import { QuestionStore } from "@gco/controller-tool/QuestionStore"
+import { PermissionStore, permissionPrompter } from "@gco/controller-tool/PermissionStore"
 import { AgentRegistry, AgentController } from "@gco/controller-agent"
 import { ProductionLayer } from "../bootstrap.js"
 import { ensureProject, deriveProjectID } from "../project-setup.js"
 import { listAllSkills } from "../skill-resolver.js"
-import { startTuiServer, type TuiServerServices } from "../tui-server.js"
+import { startTuiServer, broadcastSSE, type TuiServerServices } from "../tui-server.js"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -203,6 +204,27 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
       await rt.runPromise(
         toolRegistry.register({ question: QuestionTool.makeQuestionTool(questionStore) }),
       ).catch(() => {})
+
+      // Permission prompter — wired into SessionRunner via a module-level ref.
+      // onAsk/onReply pushes lifecycle events onto the shared SSE stream so the
+      // TUI can render the inline prompt and clear it once resolved.
+      const permissionStore = new PermissionStore({
+        onAsk: (req) =>
+          broadcastSSE({
+            directory: cwd,
+            payload: { id: req.id, type: "permission.asked", properties: req },
+          }),
+        onReply: (req, reply) =>
+          broadcastSSE({
+            directory: cwd,
+            payload: {
+              id: `${req.id}_reply`,
+              type: "permission.replied",
+              properties: { sessionID: req.sessionID, requestID: req.id, reply },
+            },
+          }),
+      })
+      permissionPrompter.current = permissionStore
 
       // Load MCP configs and provider API keys from neko.json at startup
       const cfgFile = Bun.file(path.join(directory, "neko.json"))
@@ -426,6 +448,9 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         listQuestions:  (sessionID) => Promise.resolve(questionStore.list(sessionID)),
         replyQuestion:  (requestID, answers) => { questionStore.reply(requestID, answers); return Promise.resolve() },
         rejectQuestion: (requestID) => { questionStore.reject(requestID); return Promise.resolve() },
+
+        listPermissions: (sessionID) => Promise.resolve(permissionStore.list(sessionID)),
+        replyPermission: (requestID, reply) => { permissionStore.reply(requestID, reply); return Promise.resolve() },
       }
 
       const server = startTuiServer(cwd, services)

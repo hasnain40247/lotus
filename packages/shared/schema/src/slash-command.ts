@@ -31,4 +31,5 @@ export const registry: readonly Info[] = [
   { name: "theme",      description: "Switch between light and dark themes", status: "active" },
   { name: "models",     description: "Switch the active model", status: "active" },
   { name: "clear",      description: "Start a fresh session (clears context and history)", status: "active" },
+  { name: "permission", description: "Toggle auto-approve for tool permission prompts", aliases: ["auto"], status: "active" },
 ]

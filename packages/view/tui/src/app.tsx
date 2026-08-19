@@ -47,6 +47,7 @@ import * as pathMod from "node:path"
 import { write as clipboardWrite } from "./clipboard"
 import type { EventSource } from "./context/sdk"
 import type { Args } from "./context/args"
+import type { PermissionRequest } from "@gco/sdk/v2"
 import type { TuiConfig } from "./config"
 import { win32DisableProcessedInput, win32FlushInputBuffer } from "./terminal-win32"
 import { destroyRenderer } from "./util/renderer"
@@ -378,7 +379,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                     headers={input.headers}
                     events={input.events}
                   >
-                    <Chat />
+                    <Chat args={input.args} />
                   </SDKProvider>
                 </ErrorBoundary>
               </EpilogueProvider>
@@ -771,10 +772,29 @@ function MessageRow(props: {
 
 // ─── Chat ──────────────────────────────────────────────────────────────────────
 
-function Chat() {
+function Chat(props: { args: Args }) {
   const sdk = useSDK()
   const exit = useExit()
   const renderer = useRenderer()
+
+  // In "auto" we auto-reply "once" to every permission.asked event; in "normal"
+  // we surface an inline prompt so the user can allow/always/reject each call.
+  const [permissionMode, setPermissionMode] = createSignal<"auto" | "normal">(
+    props.args.auto ? "auto" : "normal",
+  )
+  const [pendingPermission, setPendingPermission] = createSignal<PermissionRequest | null>(null)
+  function replyPermission(reply: "once" | "always" | "reject") {
+    const req = pendingPermission()
+    if (!req) return
+    setPendingPermission(null)
+    void sdk.client.permission.reply({ requestID: req.id, reply }).catch(() => {})
+  }
+  const togglePermissionMode = () => {
+    setPermissionMode((m) => (m === "auto" ? "normal" : "auto"))
+    showStatus(`Permission mode: ${permissionMode()}`)
+    // Flipping to auto while a request is pending should approve it too.
+    if (permissionMode() === "auto" && pendingPermission()) replyPermission("once")
+  }
 
   const cwdLabel = (() => {
     const dir = sdk.directory ?? process.cwd()
@@ -2097,6 +2117,11 @@ function Chat() {
         openSkillsPalette()
         return
       }
+      case "permission":
+      case "auto": {
+        togglePermissionMode()
+        return
+      }
       default: {
         if (isSkillName(name, skills())) {
           insertSkillMention(name)
@@ -2152,6 +2177,34 @@ function Chat() {
   // palette is open, and for agent cycling (tab/shift+tab) while it is closed.
   onMount(() => {
     const listener = (key: KeyEvent) => {
+      // Pending permission prompt: y=allow once, a=always, n/esc=reject.
+      // Shift+Tab flips into auto mode AND approves this request in one shot.
+      // Intercept before any other modal or the textarea consumes the key.
+      if (pendingPermission()) {
+        if (key.name === "tab" && key.shift) {
+          if (permissionMode() !== "auto") togglePermissionMode()
+          replyPermission("once")
+          key.preventDefault()
+          return
+        }
+        if (key.name === "y" || key.name === "return") { replyPermission("once"); key.preventDefault(); return }
+        if (key.name === "a") { replyPermission("always"); key.preventDefault(); return }
+        if (key.name === "n") { replyPermission("reject"); key.preventDefault(); return }
+        if (key.name === "escape") {
+          const sid = sessionID()
+          // Clear the local banner immediately so the user can type; the
+          // server-side interrupt below rejects the pending request AND flips
+          // the abort flag so no follow-up turn fires.
+          setPendingPermission(null)
+          if (sid) void sdk.client.session.abort({ sessionID: sid }).catch(() => {})
+          key.preventDefault()
+          return
+        }
+        // Swallow other keys so they don't leak into the input while pending.
+        key.preventDefault()
+        return
+      }
+
       // Theme modal open: navigate + select.
       if (themeModalOpen()) {
         if (key.name === "escape") { closeThemeModal(); key.preventDefault(); return }
@@ -2260,8 +2313,20 @@ function Chat() {
         }
       }
 
-      // Slash palette closed: tab cycles the active agent forward.
+      // Slash palette closed: esc aborts the running turn; tab cycles agents;
+      // shift+tab toggles permission mode (auto <-> normal).
       if (!paletteOpen()) {
+        if (key.name === "escape" && running()) {
+          const sid = sessionID()
+          if (sid) void sdk.client.session.abort({ sessionID: sid }).catch(() => {})
+          key.preventDefault()
+          return
+        }
+        if (key.name === "tab" && key.shift) {
+          togglePermissionMode()
+          key.preventDefault()
+          return
+        }
         if (key.name === "tab" && !key.shift) {
           void cycleAgent()
           key.preventDefault()
@@ -2349,6 +2414,21 @@ function Chat() {
         const tcid = props.toolCallID
         if (!tcid || !store.subagents[tcid]) return
         setStore("subagents", tcid, "state", (props.state ?? "completed") as SubagentState)
+        return
+      }
+
+      if (payload.type === "permission.asked") {
+        const request = payload.properties as PermissionRequest
+        if (permissionMode() === "auto") {
+          void sdk.client.permission.reply({ requestID: request.id, reply: "once" }).catch(() => {})
+          return
+        }
+        setPendingPermission(request)
+        return
+      }
+      if (payload.type === "permission.replied") {
+        const p = payload.properties as { requestID?: string }
+        if (pendingPermission()?.id === p.requestID) setPendingPermission(null)
         return
       }
 
@@ -2899,6 +2979,33 @@ function Chat() {
         loading={mentionLoading}
       />
 
+      {/* Permission prompt (normal mode only) */}
+      <Show when={pendingPermission()}>
+        {(req) => (
+          <box
+            flexShrink={0}
+            flexDirection="column"
+            paddingLeft={2}
+            paddingRight={2}
+            paddingTop={1}
+            paddingBottom={1}
+            backgroundColor={C_INPUT}
+          >
+            <text fg={C_ACCENT} wrapMode="none" attributes={TextAttributes.BOLD}>
+              {"Give permission?"}
+            </text>
+            <text>
+              <span style={{ fg: "#22c55e", attributes: TextAttributes.BOLD }}>y</span>
+              <span style={{ fg: PALETTE.dim }}>{" allow   "}</span>
+              <span style={{ fg: "#ef4444", attributes: TextAttributes.BOLD }}>n</span>
+              <span style={{ fg: PALETTE.dim }}>{" reject   "}</span>
+              <span style={{ fg: "#f59e0b", attributes: TextAttributes.BOLD }}>a</span>
+              <span style={{ fg: PALETTE.dim }}>{" always"}</span>
+            </text>
+          </box>
+        )}
+      </Show>
+
       {/* Input */}
       <box
         flexShrink={0}
@@ -2978,8 +3085,12 @@ function Chat() {
             </text>
           </box>
           <box flexDirection="row">
+            <text fg={permissionMode() === "auto" ? C_ACCENT : C_DIM}>
+              {permissionMode() === "auto" ? "◆ auto" : "◇ normal"}
+            </text>
+            <text fg={C_DIM}>{"   shift+tab"}</text>
             <Show when={activeModelName()}>
-              <text fg={C_ACTIVE}>{"● "}</text>
+              <text fg={C_ACTIVE}>{"   ● "}</text>
               <text fg={C_DIM}>{activeModelName()}</text>
             </Show>
             <Show when={contextUsage()}>

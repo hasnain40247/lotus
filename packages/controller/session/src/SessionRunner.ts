@@ -53,6 +53,7 @@ import {
 } from "@gco/model-domain"
 import { Service as ToolRegistry } from "@gco/controller-tool/ToolRegistry"
 import { Service as ToolPermissionEnforcer } from "@gco/controller-tool/ToolPermissionEnforcer"
+import { permissionPrompter } from "@gco/controller-tool/PermissionStore"
 import { PROMPT_COMPACTION, PROMPT_TITLE } from "@gco/controller-agent/AgentRegistry"
 import { AgentService } from "@gco/controller-agent"
 import { McpController } from "@gco/controller-mcp"
@@ -1356,6 +1357,10 @@ export const layer = Layer.effect(
     // Active interrupt signals — one per session
     const activeInterrupts = new Map<Session.ID, () => void>()
 
+    // Aborted sessions — the turn loop checks this between turns and bails
+    // if set. Populated by `interrupt()` below and cleared when `run()` exits.
+    const abortedSessions = new Set<Session.ID>()
+
     const getSession = (sessionID: Session.ID) =>
       sessions.get(sessionID).pipe(
         Effect.flatMap((s) =>
@@ -1749,12 +1754,32 @@ The conversation you see already contains tool calls and their results. Write a 
             needsContinuation = true
             const assistantMsgID = yield* publisher.assistantMessageID(event.id)
 
-            // Check saved user permission rules before executing. "ask" is treated as
-            // allow since the runner has no interactive channel; agent-level permissions
-            // (from AgentRegistry) already filtered the tool at materialization time.
-            const permitted = yield* enforcer.check(event.name, "*", sessionID).pipe(
-              Effect.catchCause(() => Effect.succeed("allow" as const)),
+            // Check saved user permission rules before executing. If none match
+            // and a prompter is registered (interactive TUI), block until the
+            // user replies; otherwise fall back to allow so batch/test runners
+            // continue to work. Agent-level permissions from AgentRegistry
+            // already filtered the tool at materialization time.
+            const initial = yield* enforcer.check(event.name, "*", sessionID).pipe(
+              Effect.catchCause(() => Effect.succeed("ask" as const)),
             )
+            let permitted: "allow" | "reject" = initial === "ask" ? "allow" : initial
+            if (initial === "ask" && permissionPrompter.current) {
+              const reply = yield* permissionPrompter.current.ask({
+                sessionID,
+                permission: event.name,
+                patterns: [],
+                always: [],
+                metadata: (event.input ?? {}) as Record<string, unknown>,
+                tool: { messageID: assistantMsgID, callID: event.id },
+              })
+              if (reply === "reject") permitted = "reject"
+              else permitted = "allow"
+              if (reply === "always") {
+                yield* enforcer
+                  .save(event.name, "*", session.projectID, "allow")
+                  .pipe(Effect.catchCause(() => Effect.void))
+              }
+            }
             if (permitted === "reject") {
               yield* publisher.publish(
                 LLMEvent.toolResult({
@@ -1973,6 +1998,9 @@ The conversation you see already contains tool calls and their results. Write a 
 
       if (!input.force && !hasPendingPrompt) return
 
+      // Clear any stale abort flag from a previous run for this session.
+      abortedSessions.delete(input.sessionID)
+
       let step = 1
       let needsContinuation = true
       // Track how many admitted prompts we started with so we only re-run when
@@ -1980,6 +2008,10 @@ The conversation you see already contains tool calls and their results. Write a 
       let knownAdmittedCount = initialAdmittedCount
 
       while (needsContinuation) {
+        if (abortedSessions.has(input.sessionID)) {
+          process.stderr.write(`[runner:run] aborted, stopping loop for ${input.sessionID}\n`)
+          break
+        }
         process.stderr.write(`[runner:run] starting runTurn step=${step} for ${input.sessionID}\n`)
         const result = yield* runTurn(input.sessionID, step)
         process.stderr.write(`[runner:run] runTurn done step=${step}, needsContinuation=${result.needsContinuation}\n`)
@@ -2011,6 +2043,10 @@ The conversation you see already contains tool calls and their results. Write a 
           }
         }
       }
+
+      // Skip the interpreter follow-up if the user aborted this run.
+      const wasAborted = abortedSessions.delete(input.sessionID)
+      if (wasAborted) return
 
       // If the last assistant turn ended with tools but no prose, invoke a
       // dedicated interpreter LLM call (empty tools) so the user always gets
@@ -2050,10 +2086,17 @@ The conversation you see already contains tool calls and their results. Write a 
 
     const interrupt = (sessionID: Session.ID): Effect.Effect<void> =>
       Effect.sync(() => {
+        abortedSessions.add(sessionID)
         const cancel = activeInterrupts.get(sessionID)
         if (cancel) {
           cancel()
           activeInterrupts.delete(sessionID)
+        }
+        // Unblock any tool call currently waiting on a user permission decision
+        // for this session so the turn loop can observe the abort flag.
+        const store = permissionPrompter.current
+        if (store) {
+          for (const pending of store.list(sessionID)) store.reply(pending.id, "reject")
         }
       })
 

@@ -47,6 +47,8 @@ const mockServices: TuiServerServices = {
   listQuestions: async () => [],
   replyQuestion: async () => {},
   rejectQuestion: async () => {},
+  listPermissions: async () => [],
+  replyPermission: async () => {},
 }
 
 // ─── Server lifecycle ─────────────────────────────────────────────────────────

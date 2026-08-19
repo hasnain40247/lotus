@@ -860,6 +860,7 @@ function Chat() {
               id: string
               models: Record<string, { limit?: { context?: number } }>
             }>
+            connected?: string[]
           }
         | undefined
       const providers = data?.providers ?? []
@@ -871,15 +872,29 @@ function Chat() {
         }
       }
       setModelLimits(map)
+      // Prime the connected-provider set so the submit gate can tell whether
+      // the current model's provider has a key configured before the user's
+      // first prompt (without waiting for them to open /models).
+      const connectedList: string[] = Array.isArray(data?.connected)
+        ? data!.connected.filter((s): s is string => typeof s === "string")
+        : []
+      setModelsConnected(new Set<string>(connectedList))
     } catch {
       // Provider list is best-effort; context % just won't show a percentage.
     }
     // Prime the "current model" indicator from neko.json so the footer + palette
     // can label it before the user opens /models or triggers the first turn.
+    // Only honor the config's model if its provider actually has a key —
+    // otherwise the server's hardcoded `deepseek/deepseek-v4-flash` default
+    // would make the landing footer claim deepseek is selected on a fresh
+    // install with no neko.json.
     try {
       const cfgRes = await sdk.client.config.get({}).catch(() => null)
       const cfg = cfgRes?.data as { model?: string } | undefined
-      if (cfg && typeof cfg.model === "string") setModelsCurrentKey(cfg.model)
+      if (cfg && typeof cfg.model === "string") {
+        const provider = cfg.model.includes("/") ? cfg.model.split("/")[0] : cfg.model
+        if (provider && modelsConnected().has(provider)) setModelsCurrentKey(cfg.model)
+      }
     } catch { /* footer just won't show a model name until first turn */ }
   })
 
@@ -1594,26 +1609,34 @@ function Chat() {
   }
 
   async function openModelsModal() {
-    let current: string | null = null
+    let cfgModel: string | null = null
     try {
       // SDK wraps responses as `{ data, response }` — always unwrap `.data`.
       const cfgRes = await sdk.client.config.get({}).catch(() => null)
       const cfg = cfgRes?.data as { model?: string } | undefined
-      if (cfg && typeof cfg.model === "string") current = cfg.model
+      if (cfg && typeof cfg.model === "string") cfgModel = cfg.model
     } catch {}
-    setModelsCurrentKey(current)
+    let connectedSet = new Set<string>()
     try {
       const res = await sdk.client.provider.list({} as any).catch(() => null)
       const data = res?.data as { connected?: string[] } | undefined
       const list: string[] = Array.isArray(data?.connected)
         ? data!.connected.filter((s): s is string => typeof s === "string")
         : []
-      setModelsConnected(new Set<string>(list))
+      connectedSet = new Set<string>(list)
     } catch {
-      setModelsConnected(new Set<string>())
+      connectedSet = new Set<string>()
     }
+    setModelsConnected(connectedSet)
+    // The server hands back its hardcoded default (deepseek/…) even when no
+    // provider is set up. Only treat that as the current model if its provider
+    // actually has a key — otherwise the palette would mark deepseek active on
+    // a fresh install with no neko.json.
+    const cfgProvider = cfgModel?.includes("/") ? cfgModel.split("/")[0] : cfgModel
+    const current = cfgModel && cfgProvider && connectedSet.has(cfgProvider) ? cfgModel : null
+    setModelsCurrentKey(current)
     const flat = modelsFlatItems()
-    const idx = flat.findIndex((it) => `${it.providerID}/${it.modelID}` === current)
+    const idx = current ? flat.findIndex((it) => `${it.providerID}/${it.modelID}` === current) : -1
     setModelsItemIndex(idx >= 0 ? idx : 0)
     setModelsModalOpen(true)
   }
@@ -2575,6 +2598,29 @@ function Chat() {
         void runSlashCommand(name)
         return
       }
+    }
+
+    // Provider setup gate: if the current model's provider has no key
+    // configured (e.g. neko.json is absent on first launch), refuse to send
+    // and open /models so the user picks a provider + enters a key first.
+    // Re-fetch the connected set here so a key seeded between mount and
+    // submit doesn't false-block.
+    const currentKey = modelsCurrentKey()
+    const currentProvider = currentKey ? currentKey.split("/")[0] : null
+    let connectedNow = modelsConnected()
+    try {
+      const res = await sdk.client.provider.list({} as any).catch(() => null)
+      const data = res?.data as { connected?: string[] } | undefined
+      if (Array.isArray(data?.connected)) {
+        const list = data!.connected.filter((s): s is string => typeof s === "string")
+        connectedNow = new Set<string>(list)
+        setModelsConnected(connectedNow)
+      }
+    } catch { /* fall back to cached set */ }
+    if (!currentProvider || !connectedNow.has(currentProvider)) {
+      showStatus("Pick a provider and set up an API key before sending", "warn")
+      await openModelsModal()
+      return
     }
 
     inputEl?.setText("")

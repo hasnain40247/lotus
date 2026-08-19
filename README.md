@@ -87,7 +87,7 @@ Provider API keys go in `neko.json` in your project directory:
 {
   "provider": {
     "anthropic": { "apiKey": "sk-ant-..." },
-    "deepseek":  { "apiKey": "sk-..." }
+    "deepseek": { "apiKey": "sk-..." }
   }
 }
 ```

@@ -1980,7 +1980,10 @@ function handleRequest(
 
 // ─── Server lifecycle ─────────────────────────────────────────────────────────
 
-const DEFAULT_PORT = 60100
+// Default to port 0 so the OS picks a free port — required for running
+// multiple `neko` instances concurrently. NEKO_SERVER_PORT still forces a
+// specific port when set (useful for scripts hitting the API).
+const DEFAULT_PORT = 0
 
 export function startTuiServer(directory: string, services: TuiServerServices): Server<undefined> {
   const port = Number(process.env.NEKO_SERVER_PORT ?? DEFAULT_PORT)

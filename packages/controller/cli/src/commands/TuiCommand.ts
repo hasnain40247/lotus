@@ -11,6 +11,7 @@
  */
 
 import type { CommandModule, Argv } from "yargs"
+import fs from "node:fs"
 import path from "node:path"
 import { Cause, Effect, ManagedRuntime } from "effect"
 import { run, type TuiInput } from "@gco/view-tui"
@@ -53,6 +54,35 @@ async function resolveInitialPrompt(value?: string): Promise<string | undefined>
 
 function defaultTuiConfig(): TuiInput["config"] {
   return resolveTuiConfig({}, { terminalSuspend: process.platform !== "win32" })
+}
+
+/**
+ * Route stderr and console.log/error/warn to a log file so runner and
+ * tui-server trace output doesn't corrupt OpenTUI's terminal render.
+ * process.stdout is left alone — OpenTUI writes its render escapes there.
+ */
+function redirectLogsToFile(): string {
+  const dataRoot = process.env.XDG_DATA_HOME
+    ? path.join(process.env.XDG_DATA_HOME, "neko")
+    : path.join(process.env.HOME ?? "", ".local", "share", "neko")
+  fs.mkdirSync(dataRoot, { recursive: true })
+  const logPath = path.join(dataRoot, "neko.log")
+  const stream = fs.createWriteStream(logPath, { flags: "a" })
+
+  const write = (chunk: unknown): void => {
+    const s = typeof chunk === "string" ? chunk : String(chunk)
+    stream.write(s.endsWith("\n") ? s : s + "\n")
+  }
+  process.stderr.write = ((chunk: unknown) => {
+    write(chunk)
+    return true
+  }) as typeof process.stderr.write
+  console.log   = (...args: unknown[]) => write(args.map(String).join(" "))
+  console.error = (...args: unknown[]) => write(args.map(String).join(" "))
+  console.warn  = (...args: unknown[]) => write(args.map(String).join(" "))
+  console.info  = (...args: unknown[]) => write(args.map(String).join(" "))
+
+  return logPath
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +129,9 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
       process.stderr.write(`Failed to change directory to ${directory}\n`)
       process.exit(1)
     }
+
+    // Redirect log noise BEFORE any service init writes to stderr/console.
+    redirectLogsToFile()
 
     const prompt = await resolveInitialPrompt(args.prompt)
     const autoApprove = args.auto || args.yolo || args["dangerously-skip-permissions"]

@@ -25,12 +25,73 @@ A terminal-based AI pair programmer, built with an MVC architecture on Google Cl
 - [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) with a GCP project
 - (Optional) [Ollama](https://ollama.ai) for local models
 
-## Installation
+## Install
+
+Two paths depending on how you plan to use Neko: install a standalone binary for daily use, or run from source for active development.
+
+### Option 1: Install the binary (recommended for users)
+
+Builds a single ~75 MB executable with the Bun runtime embedded. Once installed, `neko` runs in any terminal — no Bun required at invocation time.
 
 ```bash
 git clone https://github.com/yourusername/neko
 cd neko
 bun install
+bun run build
+
+# System-wide install
+sudo mv ./dist/neko /usr/local/bin/neko
+
+# — or — user-only install (ensure ~/.local/bin is on your PATH)
+mv ./dist/neko ~/.local/bin/neko
+
+# Verify
+neko --version
+```
+
+Cross-compile for other platforms with `BUILD_TARGET` and `BUILD_OUTFILE`:
+
+```bash
+BUILD_TARGET=bun-darwin-x64   BUILD_OUTFILE=./dist/neko-darwin-x64   bun run build
+BUILD_TARGET=bun-linux-x64    BUILD_OUTFILE=./dist/neko-linux-x64    bun run build
+BUILD_TARGET=bun-linux-arm64  BUILD_OUTFILE=./dist/neko-linux-arm64  bun run build
+BUILD_TARGET=bun-windows-x64  BUILD_OUTFILE=./dist/neko.exe          bun run build
+```
+
+Each target produces a self-contained binary — copy it to a matching machine and run.
+
+### Option 2: Run from source (recommended for development)
+
+Bypasses the build step so your edits are picked up on the next launch. Requires Bun on the machine at all times.
+
+```bash
+git clone https://github.com/yourusername/neko
+cd neko
+bun install
+
+# Open the TUI
+bun run dev
+
+# Any subcommand — pass through with `--`
+bun run dev -- run "explain this codebase"
+bun run dev -- session list
+```
+
+If you'd rather still type `neko` (instead of `bun run dev`) while developing, drop a shell shim on your PATH that execs the source. Since it doesn't rebuild, your edits show up on the next `neko` invocation:
+
+```bash
+cat > ~/.local/bin/neko <<EOF
+#!/usr/bin/env bash
+exec bun run --preload $(pwd)/preload.ts $(pwd)/packages/controller/cli/src/index.ts "\$@"
+EOF
+chmod +x ~/.local/bin/neko
+```
+
+### Uninstall
+
+```bash
+rm $(which neko)
+rm -rf ~/.local/share/neko    # local session data
 ```
 
 ## GCP Setup
@@ -66,36 +127,41 @@ Add a `gcp` block to your project's `neko.json`:
 
 ## Usage
 
+`neko` opens the TUI in the current directory. Open multiple terminals for parallel sessions — each instance binds to its own ephemeral port and shares state via the local SQLite backend.
+
 ```bash
-# Open the interactive TUI
-bun run dev
+# Open the interactive TUI in the current directory
+neko
+
+# Open the TUI in a specific project directory
+neko ~/code/some-project
 
 # Run a single prompt (non-interactive)
-bun run dev -- run "explain this codebase"
+neko run "explain this codebase"
 
 # Session management
-bun run dev -- session list
-bun run dev -- session delete <id>
-
-# Export a session to Cloud Storage
-bun run dev -- export <sessionID>
+neko session list
+neko session delete <id>
 
 # Provider and model management
-bun run dev -- providers
-bun run dev -- models
+neko providers
+neko models
 
 # MCP servers
-bun run dev -- mcp list
-bun run dev -- mcp add <name>
+neko mcp list
+neko mcp add <name>
+
+# Inspect local storage
+neko db path
 ```
 
 ## Selecting a Model
 
 ```bash
-bun run dev -- --model anthropic/claude-sonnet-4-6
-bun run dev -- --model vertex-ai/gemini-2.0-flash-001
-bun run dev -- --model deepseek/deepseek-chat
-bun run dev -- --model ollama/llama3.2
+neko --model anthropic/claude-sonnet-4-6
+neko --model vertex-ai/gemini-2.0-flash-001
+neko --model deepseek/deepseek-chat
+neko --model ollama/llama3.2
 ```
 
 ## Slash Commands
@@ -160,12 +226,15 @@ Connected servers' tools appear directly in the LLM's tool catalog (namespaced `
 
 ## Development
 
+See [Install > Option 2](#option-2-run-from-source-recommended-for-development) for launching the TUI from source. The other useful commands:
+
 ```bash
-bun run dev          # run the TUI in development mode
-bun test             # run tests (no GCP needed — uses in-memory layer)
+bun test             # run tests (uses in-memory model layer, no external services)
 bun run typecheck    # type check all packages
 bun run lint         # lint all packages
 ```
+
+Runtime logs (runner traces, tui-server requests) are written to `~/.local/share/neko/neko.log` while the TUI is running, so they don't corrupt the render. Tail that file to debug.
 
 ## Architecture
 

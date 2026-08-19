@@ -3,7 +3,11 @@
 A terminal-based AI pair programmer. Single-user by design, two LLM providers, first-class MCP support, fully local storage.
 
 <p align="center">
-  <img src="./assets/image.png" alt="Neko running in a terminal" width="820" />
+  <img src="./assets/landing.png" alt="Neko landing screen" width="820" />
+</p>
+
+<p align="center">
+  <img src="./assets/main.png" alt="Neko in a chat session" width="820" />
 </p>
 
 ## Features

@@ -98,38 +98,13 @@ Or manage them interactively via `neko providers`. Keys can also be read from en
 
 `neko` opens the TUI in the current directory. Open multiple terminals for parallel sessions — each instance binds to its own ephemeral port and shares state via the local SQLite backend.
 
-```bash
+````bash
 # Open the interactive TUI in the current directory
 neko
 
 # Open the TUI in a specific project directory
 neko ~/code/some-project
 
-# Run a single prompt (non-interactive)
-neko run "explain this codebase"
-
-# Session management
-neko session list
-neko session delete <id>
-
-# Provider and model management
-neko providers
-neko models
-
-# MCP servers
-neko mcp list
-neko mcp add <name>
-
-# Inspect local storage
-neko db path
-```
-
-## Selecting a Model
-
-```bash
-neko --model anthropic/claude-sonnet-4-6
-neko --model deepseek/deepseek-chat
-```
 
 ## Slash Commands
 
@@ -162,7 +137,7 @@ Configure agents in `neko.json`, drop an `AGENTS.md` in your project root, or cr
     }
   }
 }
-```
+````
 
 Built-in agents: `build` (default), `plan`, `explore`, `general`, plus the internal `compaction` / `title` / `summary` helpers.
 

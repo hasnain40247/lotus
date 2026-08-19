@@ -2,8 +2,9 @@
  * bootstrap.ts — Effect Layer compositions for neko.
  *
  * Two exported layers:
- *   ProductionLayer — real GCP services (Firestore, Secret Manager, Vertex AI)
- *   TestLayer       — in-memory repositories, no GCP needed
+ *   ProductionLayer — local persistence: SQLite metadata + JSON event files
+ *                     under ~/.local/share/neko/. No cloud.
+ *   TestLayer       — in-memory repositories.
  *
  * Layer wiring rules:
  *   Layer.mergeAll evaluates layers in parallel — siblings cannot satisfy each
@@ -15,16 +16,6 @@ import { DateTime, Effect, Layer } from "effect"
 import { Event, SessionMessage } from "@gco/schema"
 import { EventRepository } from "@gco/model-domain"
 
-// GCP infrastructure
-import {
-  GcpConfig,
-  FirestoreClient,
-  GCSStorage,
-  CloudLogger,
-  GoogleIdentity,
-  SecretManagerClient,
-} from "@gco/cloud"
-
 // LLM providers
 import * as AnthropicProvider from "@gco/llm/providers/anthropic"
 import * as DeepSeekProvider from "@gco/llm/providers/deepseek"
@@ -32,16 +23,13 @@ import * as OllamaProvider from "@gco/llm/providers/ollama"
 import * as OpenAIProvider from "@gco/llm/providers/openai"
 
 // Model layer
-import { FirestoreModelLayer } from "@gco/model-firestore"
-import { SecretsModelLayer } from "@gco/model-secrets"
+import { LocalModelLayer } from "@gco/model-local"
 import { TestModelLayer } from "@gco/model-test"
 
 // Controllers
 import {
   sessionControllerLayer,
   sessionRunnerLayer,
-  sessionExporterLayer,
-  sessionImporterLayer,
   SessionController,
   SessionRunner,
   ModelResolver,
@@ -75,7 +63,6 @@ import {
 // LLM infrastructure
 import { LLMClient, type LLMClientService } from "@gco/llm"
 import { RequestExecutor } from "@gco/llm/route"
-import * as VertexProvider from "@gco/llm/providers/vertex"
 import type { Model } from "@gco/llm"
 import type { Session } from "@gco/schema"
 import type { IEventRepository } from "@gco/model-domain"
@@ -84,16 +71,10 @@ import type { IEventRepository } from "@gco/model-domain"
 // ModelResolver implementations
 // ---------------------------------------------------------------------------
 
-const multiProviderModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConfig> = Layer.effect(
+const multiProviderModelResolverLayer: Layer.Layer<ModelResolver> = Layer.succeed(
   ModelResolver,
-  Effect.gen(function* () {
-    const config = yield* GcpConfig
-    const vertexProvider = VertexProvider.configure({
-      projectId: config.projectId,
-      region: config.region,
-    })
-
-    const resolve: ModelResolverInterface["resolve"] = (session: Session.Info) => {
+  ModelResolver.of({
+    resolve: (session: Session.Info) => {
       const modelId =
         session.model?.id ??
         (session.model as any)?.modelID ??
@@ -138,17 +119,10 @@ const multiProviderModelResolverLayer: Layer.Layer<ModelResolver, never, GcpConf
         return Effect.succeed(oa.model(modelId) as unknown as Model)
       }
 
-      const isOllama = providerID === "ollama"
-
-      if (isOllama) {
-        const ol = OllamaProvider.configure()
-        return Effect.succeed(ol.model(modelId) as unknown as Model)
-      }
-
-      return Effect.succeed(vertexProvider.model(modelId) as unknown as Model)
-    }
-
-    return ModelResolver.of({ resolve })
+      // Default to Ollama for any other provider ID or unrecognized model.
+      const ol = OllamaProvider.configure()
+      return Effect.succeed(ol.model(modelId) as unknown as Model)
+    },
   }),
 )
 
@@ -174,21 +148,9 @@ const llmClientLayer: Layer.Layer<LLMClientService> = LLMClient.layer.pipe(
 // Production Layer
 // ---------------------------------------------------------------------------
 
-// GCP primitive services — all require GcpConfig, provided here.
-const gcpServicesLayer = Layer.mergeAll(
-  FirestoreClient.layer,
-  GCSStorage.layer,
-  CloudLogger.layer,
-  GoogleIdentity.layer,
-  SecretManagerClient.layer,
-  multiProviderModelResolverLayer,
-).pipe(Layer.provide(GcpConfig.layer))
-
-// Model repositories — require GCP services + GcpConfig (SecretsModelLayer uses it directly).
-const modelReposLayer = Layer.mergeAll(
-  FirestoreModelLayer,
-  SecretsModelLayer,
-).pipe(Layer.provide(Layer.merge(gcpServicesLayer, GcpConfig.layer)))
+// Model repositories — SQLite + JSON on disk. Self-contained; no config
+// beyond `$XDG_DATA_HOME` (defaults to `~/.local/share/neko`).
+const modelReposLayer = LocalModelLayer
 
 // ---------------------------------------------------------------------------
 // Subagent runtime — resolves the cycle between builtinToolsLayer (which
@@ -435,11 +397,15 @@ const builtinToolsLayer = Layer.merge(
         run: ({ skill }) =>
           Effect.tryPromise({
             try: async () => {
-              const f = Bun.file(`${process.cwd()}/skills/${skill}.md`)
-              if (!(await f.exists())) throw new Error("not found")
-              return { output: await f.text() }
+              const { resolveSkill } = await import("./skill-resolver")
+              const found = await resolveSkill(skill)
+              if (!found) throw new Error(`Skill '${skill}' not found`)
+              return { output: found.body }
             },
-            catch: () => new Error(`Skill '${skill}' not found in ./skills/`),
+            catch: (cause) =>
+              cause instanceof Error
+                ? cause
+                : new Error(`Skill lookup failed: ${cause}`),
           }),
       }
 
@@ -484,9 +450,8 @@ const builtinToolsLayer = Layer.merge(
 // toolPermissionEnforcerLayer is placed here (not in controllersLayer) so that
 // SessionRunner can depend on it for per-call permission checks.
 const infraLayer = Layer.mergeAll(
-  GcpConfig.layer,
-  gcpServicesLayer,
   modelReposLayer,
+  multiProviderModelResolverLayer,
   llmClientLayer,
   agentLayer,
   builtinToolsLayer,
@@ -500,13 +465,11 @@ const infraLayer = Layer.mergeAll(
 // SessionRunner needs LLM, repos, ToolRegistry, and ModelResolver — all in infraLayer.
 const sessionRunnerWithDeps = sessionRunnerLayer.pipe(Layer.provide(infraLayer))
 
-// Top-level controllers — need repos, GCSStorage, and SessionRunner.
+// Top-level controllers — need repos and SessionRunner.
 // (McpController lives in infraLayer so SessionRunner can see it.)
-const controllersLayer = Layer.mergeAll(
-  sessionControllerLayer,
-  sessionExporterLayer,
-  sessionImporterLayer,
-).pipe(Layer.provide(Layer.merge(infraLayer, sessionRunnerWithDeps)))
+const controllersLayer = sessionControllerLayer.pipe(
+  Layer.provide(Layer.merge(infraLayer, sessionRunnerWithDeps)),
+)
 
 // Populate subagentRuntime after controllers are ready. Depends on
 // SessionController + SessionRunner (from controllersLayer/sessionRunnerWithDeps)
@@ -531,31 +494,9 @@ export const ProductionLayer: Layer.Layer<any, any, never> = Layer.mergeAll(
 // Test Layer
 // ---------------------------------------------------------------------------
 
-const stubGoogleIdentityLayer: Layer.Layer<GoogleIdentity> = Layer.succeed(
-  GoogleIdentity,
-  GoogleIdentity.of({ email: "test@example.com", name: "Test User" }),
-)
-
-const stubGCSStorageLayer: Layer.Layer<GCSStorage> = Layer.succeed(
-  GCSStorage,
-  GCSStorage.of({
-    client: null as any,
-    exportsBucket: "test-exports",
-    artifactsBucket: "test-artifacts",
-    write: (_key: string, _data: Buffer, _mime: string) =>
-      Effect.fail(new Error("GCSStorage not available in test mode")),
-    read: (_uri: string) =>
-      Effect.fail(new Error("GCSStorage not available in test mode")),
-    list: (_prefix: string) =>
-      Effect.fail(new Error("GCSStorage not available in test mode")),
-  }),
-)
-
-// Infrastructure for tests — in-memory repos, no GCP needed.
+// Infrastructure for tests — in-memory repos.
 const testInfraLayer = Layer.mergeAll(
   TestModelLayer,
-  stubGCSStorageLayer,
-  stubGoogleIdentityLayer,
   llmClientLayer,
   agentLayer,
   builtinToolsLayer,
@@ -568,11 +509,9 @@ const testInfraLayer = Layer.mergeAll(
 
 const testSessionRunnerWithDeps = sessionRunnerLayer.pipe(Layer.provide(testInfraLayer))
 
-const testControllersLayer = Layer.mergeAll(
-  sessionControllerLayer,
-  sessionExporterLayer,
-  sessionImporterLayer,
-).pipe(Layer.provide(Layer.merge(testInfraLayer, testSessionRunnerWithDeps)))
+const testControllersLayer = sessionControllerLayer.pipe(
+  Layer.provide(Layer.merge(testInfraLayer, testSessionRunnerWithDeps)),
+)
 
 const testSubagentWiringLayer = Layer.effectDiscard(
   Effect.gen(function* () {

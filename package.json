@@ -7,8 +7,7 @@
     "packages/shared/sdk",
     "packages/shared/llm",
     "packages/model/domain",
-    "packages/model/firestore",
-    "packages/model/secrets",
+    "packages/model/local",
     "packages/model/test",
     "packages/controller/cli",
     "packages/controller/session",
@@ -16,8 +15,7 @@
     "packages/controller/mcp",
     "packages/controller/tool",
     "packages/view/tui",
-    "packages/view/cli",
-    "packages/cloud"
+    "packages/view/cli"
   ],
   "catalog": {
     "@tsconfig/bun": "1.0.9",

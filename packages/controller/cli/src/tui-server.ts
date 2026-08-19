@@ -36,6 +36,7 @@ export interface TuiServerServices {
   readonly loadEvents: (sessionID: string) => Promise<any[]>
   readonly archiveSession: (sessionID: string) => Promise<void>
   readonly abortSession: (sessionID: string) => Promise<void>
+  readonly compactSession: (sessionID: string) => Promise<void>
   readonly updateSession: (sessionID: string, patch: { title?: string; agent?: string; model?: { id: string; providerID: string } }) => Promise<any>
   readonly forkSession: (sessionID: string, opts?: { messageID?: string; partID?: string }) => Promise<any>
   readonly revertSession: (sessionID: string, messageID: string) => Promise<void>
@@ -81,15 +82,24 @@ async function startEventPoller(
   directory: string,
   loadEvents: (id: string) => Promise<any[]>,
   getSession: (id: string) => Promise<any>,
+  /**
+   * Number of events already on disk *before* this turn's prompt was admitted.
+   * Callers that admit a prompt just before starting the poller MUST pass this
+   * (captured pre-admit) so `prompt.admitted` is processed by the poller. With
+   * local (SQLite + fs) storage the write completes before the poller's own
+   * `loadEvents` fires, so falling back to `existing.length` would skip past
+   * the new prompt event. Firestore's latency masked this before the local
+   * migration.
+   */
+  seedSeenCount?: number,
 ): Promise<void> {
   if (activePollers.has(sessionID)) return
   let running = true
   activePollers.set(sessionID, () => { running = false })
 
   // Seed from existing events so we only process events from THIS turn.
-  // The prompt is fire-and-forget so the runner hasn't written any new events yet.
   const existing = await loadEvents(sessionID).catch(() => [] as any[])
-  let seenCount = existing.length
+  let seenCount = seedSeenCount ?? existing.length
   let idleMs = 0
   const IDLE_STOP_MS = 60_000  // stop polling 60 s after last event
   const projector = createStreamingProjector(sessionID, directory)
@@ -1477,6 +1487,11 @@ function handleRequest(
         .map((p: any) => p.text as string)
       const text: string = body.text ?? (textParts.length > 0 ? textParts.join("\n") : "")
 
+      // Snapshot event count before admitting so the poller can process the
+      // prompt.admitted event we're about to write. With local storage the
+      // admit completes before the poller's own loadEvents fires.
+      const preAdmitCount = (await services.loadEvents(sessionID).catch(() => [] as any[])).length
+
       // Fire-and-forget — the runner runs in background
       services
         .prompt({ sessionID, text, files: body.files ?? [], parts: body.parts ?? [] })
@@ -1484,7 +1499,7 @@ function handleRequest(
         .catch((err) => console.error("[tui-server] prompt error:", err))
 
       // Start polling for events produced by this session
-      startEventPoller(sessionID, directory, services.loadEvents, services.getSession).catch(
+      startEventPoller(sessionID, directory, services.loadEvents, services.getSession, preAdmitCount).catch(
         (err) => console.error("[tui-server] poller error:", err),
       )
       console.log(`[tui-server] poller started for ${sessionID}`)
@@ -1686,8 +1701,6 @@ function handleRequest(
       { name: "run [message..]",          description: "Run neko with a message (non-interactive)" },
       { name: "session list",             description: "List sessions" },
       { name: "session delete",           description: "Delete a session" },
-      { name: "export [sessionID]",       description: "Export session data to GCS" },
-      { name: "import <source>",          description: "Import session data from a local file or gs:// URI" },
       { name: "agent list",               description: "List all available agents" },
       { name: "mcp list",                 description: "List MCP servers and their status" },
       { name: "mcp add",                  description: "Add an MCP server" },
@@ -1933,7 +1946,29 @@ function handleRequest(
   // ── Session sub-resource stubs ─────────────────────────────────────────────
   if (pathname.startsWith("/session/") && pathname.endsWith("/shell") && method === "POST") return json({})
   if (pathname.startsWith("/session/") && pathname.endsWith("/command") && method === "POST") return json({})
-  if (pathname.startsWith("/session/") && pathname.endsWith("/summarize") && method === "POST") return json({})
+
+  // ── Sessions — summarize (manual /compact) ────────────────────────────────
+  const summarizeMatch = pathname.match(/^\/session\/([^/]+)\/summarize$/)
+  if (summarizeMatch && method === "POST") {
+    const sessionID = summarizeMatch[1]!
+    return (async () => {
+      // Snapshot event count before compaction so the poller can pick up the
+      // compaction.started / compaction.ended events we're about to write.
+      const preCount = (await services.loadEvents(sessionID).catch(() => [] as any[])).length
+
+      // Fire-and-forget — compaction runs an LLM call in the background.
+      services
+        .compactSession(sessionID)
+        .then(() => console.log(`[tui-server] compact triggered for ${sessionID}`))
+        .catch((err) => console.error("[tui-server] compact error:", err))
+
+      startEventPoller(sessionID, directory, services.loadEvents, services.getSession, preCount).catch(
+        (err) => console.error("[tui-server] poller error:", err),
+      )
+
+      return json({})
+    })()
+  }
 
   // ── Sync endpoints (stub) ──────────────────────────────────────────────────
   if (pathname === "/sync/list" && method === "GET") return json([])

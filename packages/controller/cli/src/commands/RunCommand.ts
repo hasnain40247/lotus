@@ -15,6 +15,7 @@ import { Effect } from "effect"
 import { color } from "@gco/view-cli"
 import { SessionController } from "@gco/controller-session"
 import { ProductionLayer } from "../bootstrap.js"
+import { ensureProject } from "../project-setup.js"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,6 +109,10 @@ async function runHandler(args: RunArgs): Promise<void> {
   const program = Effect.gen(function* () {
     const controller = yield* SessionController
 
+    // Ensure a project record exists for this directory and use its ID.
+    const project = yield* ensureProject(directory)
+    const projectID = project.id
+
     // Resolve the session to use
     let sessionID: string
 
@@ -119,7 +124,7 @@ async function runHandler(args: RunArgs): Promise<void> {
       if (args.fork) {
         // Create a forked session
         const forked = yield* controller.create({
-          projectID: "default",
+          projectID,
           title: existing.title,
           agent: args.agent,
           model: resolveModel(args.model),
@@ -131,7 +136,7 @@ async function runHandler(args: RunArgs): Promise<void> {
       }
     } else if (args.continue) {
       // Find and continue the most recent session
-      const sessions = yield* controller.list("default").pipe(
+      const sessions = yield* controller.list(projectID).pipe(
         Effect.catch(() => Effect.succeed([] as any[])),
       )
       const latest = sessions.sort((a: any, b: any) => {
@@ -141,7 +146,7 @@ async function runHandler(args: RunArgs): Promise<void> {
       })[0]
       if (latest && args.fork) {
         const forked = yield* controller.create({
-          projectID: "default",
+          projectID,
           title: latest.title,
           agent: args.agent,
           model: resolveModel(args.model),
@@ -153,7 +158,7 @@ async function runHandler(args: RunArgs): Promise<void> {
       } else {
         // No existing session — create one
         const created = yield* controller.create({
-          projectID: "default",
+          projectID,
           title: args.title,
           agent: args.agent,
           model: resolveModel(args.model),
@@ -169,7 +174,7 @@ async function runHandler(args: RunArgs): Promise<void> {
           : rawMessage.slice(0, 50) + (rawMessage.length > 50 ? "..." : "")
 
       const created = yield* controller.create({
-        projectID: "default",
+        projectID,
         title: titleValue || undefined,
         agent: args.agent,
         model: resolveModel(args.model),

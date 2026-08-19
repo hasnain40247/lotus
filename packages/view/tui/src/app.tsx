@@ -22,7 +22,8 @@ import { createStore } from "solid-js/store"
 import { ErrorComponent } from "./component/error-component"
 import { SDKProvider, useSDK } from "./context/sdk"
 import { registerNekoKeymap } from "./keymap"
-import { SlashPalette, PALETTE_VIEWPORT, filterSlashCommands } from "./component/slash-palette"
+import { SlashPalette, PALETTE_VIEWPORT, filterSlashCommands, isSkillName } from "./component/slash-palette"
+import { SkillsPalette, type SkillPaletteItem } from "./component/skills-palette"
 import { AgentPalette, type AgentPaletteItem, type AgentPalettePhase } from "./component/agent-palette"
 import { MentionPalette, MENTION_VIEWPORT } from "./component/mention-palette"
 import { McpPalette, type McpPaletteItem, type McpPalettePhase } from "./component/mcp-palette"
@@ -34,7 +35,7 @@ import {
   type ModelsPaletteItem,
   type ModelsPaletteRow,
 } from "./component/models-palette"
-import { nekoCells, nekoLabel, rgbHex } from "./logo"
+import { nekoCells, nekoLabel, nekoLanding, nekoLandingLabel, rgbHex } from "./logo"
 import { AnimatedCat } from "./component/logo"
 import {
   ACTIVE_THEME, GLOBAL_CONFIG_PATH, LIGHT_PALETTE, DARK_PALETTE, PALETTE,
@@ -93,8 +94,10 @@ const EMPTY_SYNTAX = SyntaxStyle.fromTheme([])
 // highlighted (bold + accent color) inline as the user types or completes.
 const INPUT_SYNTAX = SyntaxStyle.fromStyles({
   mention: { fg: "#2E7D6E", bold: true },   // deep sea-glass green — pops on cream
+  skill:   { fg: "#B4531A", bold: true },   // burnt orange — visually distinct from @mentions
 })
 const MENTION_STYLE_ID = INPUT_SYNTAX.getStyleId("mention") ?? 0
+const SKILL_STYLE_ID = INPUT_SYNTAX.getStyleId("skill") ?? 0
 const MENTION_FG = RGBA.fromHex("#2E7D6E")
 
 // Split `text` into alternating plain/mention segments so message rendering
@@ -916,6 +919,17 @@ function Chat() {
   // Picked once per Chat mount so the placeholder stays stable while the user
   // is on the landing hero, and re-rolls on next app launch.
   const landingPlaceholder = pickLandingPlaceholder()
+
+  // Landing-hero animation: cycle through nekoLanding.frames while the user
+  // hasn't started chatting yet. Cheap wall-clock timer; unmounted with the
+  // component via onCleanup.
+  const [landingFrame, setLandingFrame] = createSignal(0)
+  const landingTimer = setInterval(() => {
+    if (hasStartedChat()) return
+    setLandingFrame((f) => (f + 1) % nekoLanding.frames.length)
+  }, nekoLanding.delayMs)
+  onCleanup(() => clearInterval(landingTimer))
+  const landingCells = () => nekoLanding.frames[landingFrame()]!
   const [transitionT, setTransitionT] = createSignal(0)  // 0 = fresh, 1 = chat
   createEffect(() => {
     if (!hasStartedChat()) return
@@ -1025,7 +1039,24 @@ function Chat() {
   const [paletteQuery, setPaletteQuery] = createSignal("")
   const [paletteIndex, setPaletteIndex] = createSignal(0)
   const [paletteScrollTop, setPaletteScrollTop] = createSignal(0)
-  const paletteMatches = () => filterSlashCommands(paletteQuery())
+  const [skills, setSkills] = createSignal<Array<{ name: string; description: string }>>([])
+  const paletteMatches = () => filterSlashCommands(paletteQuery(), skills())
+
+  // Dedicated skills palette modal (opened by /skills).
+  const [skillsPaletteOpen, setSkillsPaletteOpen] = createSignal(false)
+  const [skillsPaletteIndex, setSkillsPaletteIndex] = createSignal(0)
+  const skillsPaletteItems = (): SkillPaletteItem[] =>
+    skills().map((s) => ({ name: s.name, description: s.description }))
+
+  // Skills are discovered at TUI mount by scanning ./skills and ~/.config/neko/skills.
+  // Fire once — reload requires a TUI restart, which is acceptable for MVP.
+  void (async () => {
+    try {
+      const res = await sdk.client.app.skills({}).catch(() => null)
+      const list = (res?.data ?? []) as Array<{ name: string; description?: string }>
+      setSkills(list.map((s) => ({ name: s.name, description: s.description ?? "" })))
+    } catch {}
+  })()
 
   // ── @ file mention palette ──────────────────────────────────────────────
   const [mentionOpen, setMentionOpen] = createSignal(false)
@@ -1131,14 +1162,33 @@ function Chat() {
       el.clearAllHighlights()
     } catch { /* no-op if not supported */ }
     const text = el.plainText ?? ""
-    const re = /(^|\s)@\S+/g
-    let match: RegExpExecArray | null
-    while ((match = re.exec(text)) !== null) {
-      const start = match.index + (match[1]?.length ?? 0)
-      const end = start + (match[0].length - (match[1]?.length ?? 0))
+
+    // @-file mentions
+    const mentionRe = /(^|\s)@\S+/g
+    let m: RegExpExecArray | null
+    while ((m = mentionRe.exec(text)) !== null) {
+      const start = m.index + (m[1]?.length ?? 0)
+      const end = start + (m[0].length - (m[1]?.length ?? 0))
       try {
         el.addHighlightByCharRange({ start, end, styleId: MENTION_STYLE_ID })
       } catch { /* no-op */ }
+    }
+
+    // Skill mentions — only highlight tokens that match a known skill name so
+    // typos and unrelated slash content stay unstyled.
+    const knownSkills = new Set(skills().map((s) => s.name))
+    if (knownSkills.size > 0) {
+      const skillRe = /(^|\s)\/([a-zA-Z0-9._-]+)/g
+      let s: RegExpExecArray | null
+      while ((s = skillRe.exec(text)) !== null) {
+        const name = s[2]!
+        if (!knownSkills.has(name)) continue
+        const start = s.index + (s[1]?.length ?? 0)
+        const end = start + 1 + name.length // include the leading "/"
+        try {
+          el.addHighlightByCharRange({ start, end, styleId: SKILL_STYLE_ID })
+        } catch { /* no-op */ }
+      }
     }
   }
 
@@ -1172,7 +1222,7 @@ function Chat() {
   // the modal (MCP create wizard, models auth key) or the modal is purely
   // navigational and shouldn't stack another palette on top.
   const anyModalOpen = () =>
-    agentModalOpen() || mcpModalOpen() || modelsModalOpen() || themeModalOpen()
+    agentModalOpen() || mcpModalOpen() || modelsModalOpen() || themeModalOpen() || skillsPaletteOpen()
 
   function updatePaletteFromInput() {
     const text = inputEl?.plainText ?? ""
@@ -1194,9 +1244,7 @@ function Chat() {
       setPaletteIndex(clamped)
       reconcileScroll(clamped, matches.length)
     } else if (paletteOpen()) {
-      setPaletteOpen(false)
-      setPaletteIndex(0)
-      setPaletteScrollTop(0)
+      closePalette()
     }
 
     // @ mention palette
@@ -2013,9 +2061,57 @@ function Chat() {
         void clearSession()
         return
       }
-      default:
+      case "skills": {
+        openSkillsPalette()
+        return
+      }
+      default: {
+        if (isSkillName(name, skills())) {
+          insertSkillMention(name)
+          return
+        }
         showStatus(`/${name} isn't wired up in this UI yet`, "warn")
+      }
     }
+  }
+
+  /** Insert `/<name> ` as a styled mention, cursor at the end. */
+  function insertSkillMention(name: string) {
+    const text = `/${name} `
+    inputEl?.setText(text)
+    if (inputEl) inputEl.cursorOffset = text.length
+    setPaletteOpen(false)
+    highlightMentionsInInput()
+  }
+
+  // ── Skills palette (modal, opened by /skills) ───────────────────────────
+  function openSkillsPalette() {
+    if (skills().length === 0) {
+      showStatus("No skills found. Create one with `neko skill create <name>`", "warn")
+      return
+    }
+    closePalette()
+    inputEl?.setText("")
+    setSkillsPaletteIndex(0)
+    setSkillsPaletteOpen(true)
+  }
+  function closeSkillsPalette() {
+    setSkillsPaletteOpen(false)
+    setSkillsPaletteIndex(0)
+  }
+  function moveSkillsPaletteSelection(delta: number) {
+    const total = skillsPaletteItems().length
+    if (total === 0) return
+    const raw = skillsPaletteIndex() + delta
+    const next = raw < 0 ? total - 1 : raw >= total ? 0 : raw
+    setSkillsPaletteIndex(next)
+  }
+  function confirmSkillsPaletteSelection() {
+    const items = skillsPaletteItems()
+    const item = items[skillsPaletteIndex()]
+    if (!item) return
+    closeSkillsPalette()
+    insertSkillMention(item.name)
   }
 
   // Intercept up/down/tab/escape BEFORE the global keymap eats them for cursor
@@ -2070,6 +2166,17 @@ function Chat() {
           if (key.name === "d") { requestDeleteMcpFromModal(); key.preventDefault(); return }
         }
         // In "create" phase, let text keys reach the input; only Esc handled above.
+        return
+      }
+
+      // Skills palette open: navigate + select.
+      if (skillsPaletteOpen()) {
+        if (key.name === "escape") { closeSkillsPalette(); key.preventDefault(); return }
+        if (key.name === "up") { moveSkillsPaletteSelection(-1); key.preventDefault(); return }
+        if (key.name === "down") { moveSkillsPaletteSelection(1); key.preventDefault(); return }
+        if (key.name === "return") { confirmSkillsPaletteSelection(); key.preventDefault(); return }
+        // Swallow other keys while the modal owns the input.
+        key.preventDefault()
         return
       }
 
@@ -2131,9 +2238,7 @@ function Chat() {
       }
       const matches = paletteMatches()
       if (key.name === "escape") {
-        setPaletteOpen(false)
-        setPaletteIndex(0)
-        setPaletteScrollTop(0)
+        closePalette()
         key.preventDefault()
         return
       }
@@ -2465,7 +2570,7 @@ function Chat() {
         return
       }
       // Any known slash command typed by hand with no args → run its handler.
-      if (!arg && filterSlashCommands(name).some((c) => c.name === name || c.aliases?.includes(name))) {
+      if (!arg && filterSlashCommands(name, skills()).some((c) => c.name === name || c.aliases?.includes(name))) {
         inputEl?.setText("")
         void runSlashCommand(name)
         return
@@ -2507,7 +2612,7 @@ function Chat() {
             paddingTop={7}
             paddingBottom={1}
           >
-            <For each={nekoCells}>
+            <For each={landingCells()}>
               {(row) => (
                 <text>
                   <For each={row}>
@@ -2519,7 +2624,7 @@ function Chat() {
               )}
             </For>
             <box height={1} />
-            <For each={nekoLabel}>
+            <For each={nekoLandingLabel}>
               {(line) => (
                 <text fg={centerLabelColor()} attributes={TextAttributes.BOLD}>
                   {line}
@@ -2679,6 +2784,13 @@ function Chat() {
         selected={paletteIndex}
         scrollTop={paletteScrollTop}
         grouped={() => paletteQuery().trim() === ""}
+      />
+
+      {/* Skills modal (opens on /skills) */}
+      <SkillsPalette
+        visible={skillsPaletteOpen}
+        items={skillsPaletteItems}
+        index={skillsPaletteIndex}
       />
 
       {/* Agent modal (opens on /agent) */}

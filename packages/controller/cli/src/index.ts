@@ -6,26 +6,23 @@
  * consistent help/version flags.
  */
 
-// Load neko.json GCP config into env vars before Effect reads them.
-// Effect's Config.string() only reads process.env, so this must run first.
+// Load provider API keys from neko.json into env vars before anything else
+// runs. The ModelResolver reads these when picking an LLM client.
 await (async () => {
   try {
     const file = Bun.file("neko.json")
-    if (await file.exists()) {
-      const cfg = await file.json()
-      if (cfg?.gcp?.projectId && !process.env.NEKO_PROJECT_ID)
-        process.env.NEKO_PROJECT_ID = cfg.gcp.projectId
-      if (cfg?.gcp?.region && !process.env.NEKO_REGION)
-        process.env.NEKO_REGION = cfg.gcp.region
-      if (cfg?.provider?.deepseek?.apiKey && !process.env.DEEPSEEK_API_KEY)
-        process.env.DEEPSEEK_API_KEY = cfg.provider.deepseek.apiKey
-      if (cfg?.provider?.anthropic?.apiKey && !process.env.ANTHROPIC_API_KEY)
-        process.env.ANTHROPIC_API_KEY = cfg.provider.anthropic.apiKey
-      if (cfg?.server?.port && !process.env.NEKO_SERVER_PORT)
-        process.env.NEKO_SERVER_PORT = String(cfg.server.port)
-    }
+    if (!(await file.exists())) return
+    const cfg = await file.json()
+    if (cfg?.provider?.deepseek?.apiKey && !process.env.DEEPSEEK_API_KEY)
+      process.env.DEEPSEEK_API_KEY = cfg.provider.deepseek.apiKey
+    if (cfg?.provider?.anthropic?.apiKey && !process.env.ANTHROPIC_API_KEY)
+      process.env.ANTHROPIC_API_KEY = cfg.provider.anthropic.apiKey
+    if (cfg?.provider?.openai?.apiKey && !process.env.OPENAI_API_KEY)
+      process.env.OPENAI_API_KEY = cfg.provider.openai.apiKey
+    if (cfg?.server?.port && !process.env.NEKO_SERVER_PORT)
+      process.env.NEKO_SERVER_PORT = String(cfg.server.port)
   } catch {
-    // Malformed neko.json — ignore, the config layer will produce a clear error.
+    // Malformed neko.json — ignore.
   }
 })()
 
@@ -37,12 +34,11 @@ import { EOL } from "node:os"
 import { TuiCommand } from "./commands/TuiCommand.js"
 import { RunCommand } from "./commands/RunCommand.js"
 import { SessionCommand } from "./commands/SessionCommand.js"
-import { ExportCommand } from "./commands/ExportCommand.js"
-import { ImportCommand } from "./commands/ImportCommand.js"
 import { AgentCommand } from "./commands/AgentCommand.js"
 import { McpCommand } from "./commands/McpCommand.js"
 import { ProvidersCommand } from "./commands/ProvidersCommand.js"
 import { ModelsCommand } from "./commands/ModelsCommand.js"
+import { SkillCommand } from "./commands/SkillCommand.js"
 import { DbCommand } from "./commands/DbCommand.js"
 import { GenerateCommand } from "./commands/GenerateCommand.js"
 import { UninstallCommand } from "./commands/UninstallCommand.js"
@@ -77,9 +73,6 @@ const cli = yargs(args)
   .command(RunCommand)
   // Session management
   .command(SessionCommand)
-  // Export / import
-  .command(ExportCommand)
-  .command(ImportCommand)
   // Agent management
   .command(AgentCommand)
   // MCP server management
@@ -88,7 +81,9 @@ const cli = yargs(args)
   .command(ProvidersCommand)
   // Model listing
   .command(ModelsCommand)
-  // Database / Firestore info
+  // Skill scaffolding
+  .command(SkillCommand)
+  // Database / local storage info
   .command(DbCommand)
   // Code generation
   .command(GenerateCommand)

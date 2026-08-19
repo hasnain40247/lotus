@@ -128,6 +128,7 @@ export interface RunInput {
 export interface Interface {
   readonly run: (input: RunInput) => Effect.Effect<void, RunError>
   readonly interrupt: (sessionID: Session.ID) => Effect.Effect<void>
+  readonly compact: (sessionID: Session.ID) => Effect.Effect<void>
 }
 
 export class SessionRunner extends Context.Service<SessionRunner, Interface>()(
@@ -2056,6 +2057,9 @@ The conversation you see already contains tool calls and their results. Write a 
         }
       })
 
-    return SessionRunner.of({ run, interrupt })
+    const compact = (sessionID: Session.ID): Effect.Effect<void> =>
+      runCompaction(sessionID, "manual")
+
+    return SessionRunner.of({ run, interrupt, compact })
   }),
 )

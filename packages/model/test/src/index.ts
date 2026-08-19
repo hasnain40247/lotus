@@ -2,19 +2,17 @@ import { Layer } from "effect"
 
 export { InMemorySessionRepositoryLive, layer as InMemorySessionRepositoryLayer } from "./InMemorySessionRepository"
 export { InMemoryEventRepositoryLive, layer as InMemoryEventRepositoryLayer } from "./InMemoryEventRepository"
-export { InMemoryCredentialRepositoryLive, layer as InMemoryCredentialRepositoryLayer } from "./InMemoryCredentialRepository"
 export { InMemoryPermissionRepositoryLive, layer as InMemoryPermissionRepositoryLayer } from "./InMemoryPermissionRepository"
 export { InMemoryProjectRepositoryLive, layer as InMemoryProjectRepositoryLayer } from "./InMemoryProjectRepository"
-export { InMemoryWorkspaceRepositoryLive, layer as InMemoryWorkspaceRepositoryLayer } from "./InMemoryWorkspaceRepository"
+export { InMemoryCredentialRepositoryLive, layer as InMemoryCredentialRepositoryLayer } from "./InMemoryCredentialRepository"
 
 export { seedSession, makeEvent } from "./helpers"
 
 import { InMemorySessionRepositoryLive } from "./InMemorySessionRepository"
 import { InMemoryEventRepositoryLive } from "./InMemoryEventRepository"
-import { InMemoryCredentialRepositoryLive } from "./InMemoryCredentialRepository"
 import { InMemoryPermissionRepositoryLive } from "./InMemoryPermissionRepository"
 import { InMemoryProjectRepositoryLive } from "./InMemoryProjectRepository"
-import { InMemoryWorkspaceRepositoryLive } from "./InMemoryWorkspaceRepository"
+import { InMemoryCredentialRepositoryLive } from "./InMemoryCredentialRepository"
 
 /**
  * Combined test layer providing all in-memory repository implementations.
@@ -27,8 +25,7 @@ import { InMemoryWorkspaceRepositoryLive } from "./InMemoryWorkspaceRepository"
 export const TestModelLayer = Layer.mergeAll(
   InMemorySessionRepositoryLive,
   InMemoryEventRepositoryLive,
-  InMemoryCredentialRepositoryLive,
   InMemoryPermissionRepositoryLive,
   InMemoryProjectRepositoryLive,
-  InMemoryWorkspaceRepositoryLive,
+  InMemoryCredentialRepositoryLive,
 )

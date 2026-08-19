@@ -1,5 +1,5 @@
 {
-  "name": "@gco/model-firestore",
+  "name": "@gco/model-local",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,12 +13,11 @@
   "dependencies": {
     "effect": "catalog:",
     "@gco/model-domain": "workspace:*",
-    "@gco/cloud": "workspace:*",
-    "@gco/schema": "workspace:*",
-    "@google-cloud/firestore": "^7.11.0"
+    "@gco/schema": "workspace:*"
   },
   "devDependencies": {
     "@tsconfig/bun": "^1.0.7",
+    "@types/bun": "catalog:",
     "typescript": "^5.8.2"
   }
 }

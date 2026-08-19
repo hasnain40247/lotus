@@ -16,8 +16,8 @@ import os from "node:os"
 import path from "node:path"
 import { Effect, Duration } from "effect"
 import { color } from "@gco/view-cli"
-import { GcpConfig } from "@gco/cloud"
 import { AgentService } from "@gco/controller-agent"
+import { dataRoot, dbPath, eventsRoot } from "@gco/model-local"
 import { ProductionLayer } from "../bootstrap.js"
 
 // ---------------------------------------------------------------------------
@@ -54,34 +54,19 @@ function statePath(): string {
 
 const DebugConfigCommand: CommandModule<object, object> = {
   command: "config",
-  describe: "show effective GCP configuration",
+  describe: "show effective storage configuration",
 
   handler: async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const config = yield* GcpConfig
-        process.stdout.write(
-          JSON.stringify(
-            {
-              projectId: config.projectId,
-              region: config.region,
-            },
-            null,
-            2,
-          ) + EOL,
-        )
-      }).pipe(
-        Effect.catch((err: unknown) => {
-          process.stdout.write(
-            color.yellow("Warning: ") +
-              "Could not load GCP config: " +
-              (err instanceof Error ? err.message : String(err)) +
-              EOL,
-          )
-          return Effect.void
-        }),
-        Effect.provide(ProductionLayer),
-      ),
+    process.stdout.write(
+      JSON.stringify(
+        {
+          dataRoot: dataRoot(),
+          dbPath: dbPath(),
+          eventsRoot: eventsRoot(),
+        },
+        null,
+        2,
+      ) + EOL,
     )
   },
 }
@@ -138,8 +123,9 @@ const DebugStartupCommand: CommandModule<object, object> = {
     const start = Date.now()
     await Effect.runPromise(
       Effect.gen(function* () {
-        // Attempt to connect to GCP services and measure time
-        yield* GcpConfig
+        // Force the ProductionLayer to fully construct so we time cold-start
+        // costs (SQLite open + migrations, etc.).
+        yield* AgentService
       }).pipe(
         Effect.catch(() => Effect.void),
         Effect.provide(ProductionLayer),

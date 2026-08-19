@@ -1,8 +1,10 @@
 import { Effect, Layer } from "effect"
-import { CredentialRepository } from "@gco/model-domain"
-import type { CredentialInfo } from "@gco/model-domain"
-import type { Credential, Integration } from "@gco/model-domain"
-import { ascending } from "@gco/schema/identifier"
+import {
+  CredentialRepository,
+  type CredentialInfo,
+  Credential,
+  type Integration,
+} from "@gco/model-domain"
 
 export const InMemoryCredentialRepositoryLive = Layer.succeed(CredentialRepository, (() => {
   const store = new Map<string, CredentialInfo>()
@@ -14,12 +16,12 @@ export const InMemoryCredentialRepositoryLive = Layer.succeed(CredentialReposito
 
     list(integrationID: Integration.ID): Effect.Effect<CredentialInfo[], Error> {
       return Effect.sync(() =>
-        [...store.values()].filter((c) => c.integrationID === integrationID)
+        [...store.values()].filter((c) => c.integrationID === integrationID),
       )
     },
 
     get(id: Credential.ID): Effect.Effect<CredentialInfo | undefined, Error> {
-      return Effect.sync(() => store.get(id))
+      return Effect.sync(() => store.get(id as string))
     },
 
     create(input: {
@@ -28,14 +30,14 @@ export const InMemoryCredentialRepositoryLive = Layer.succeed(CredentialReposito
       readonly label?: string
     }): Effect.Effect<CredentialInfo, Error> {
       return Effect.sync(() => {
-        const id = ("cred_" + ascending()) as Credential.ID
+        const id = Credential.ID.create()
         const info: CredentialInfo = {
           id,
           integrationID: input.integrationID,
           label: input.label ?? "",
           value: input.value,
         }
-        store.set(id, info)
+        store.set(id as string, info)
         return info
       })
     },
@@ -45,16 +47,14 @@ export const InMemoryCredentialRepositoryLive = Layer.succeed(CredentialReposito
       updates: Partial<Pick<CredentialInfo, "label" | "value">>,
     ): Effect.Effect<void, Error> {
       return Effect.sync(() => {
-        const existing = store.get(id)
-        if (existing) {
-          store.set(id, { ...existing, ...updates })
-        }
+        const existing = store.get(id as string)
+        if (existing) store.set(id as string, { ...existing, ...updates })
       })
     },
 
     remove(id: Credential.ID): Effect.Effect<void, Error> {
       return Effect.sync(() => {
-        store.delete(id)
+        store.delete(id as string)
       })
     },
   }

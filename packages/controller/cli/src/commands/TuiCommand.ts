@@ -16,12 +16,21 @@ import { Cause, Effect, ManagedRuntime } from "effect"
 import { run, type TuiInput } from "@gco/view-tui"
 import { resolve as resolveTuiConfig } from "@gco/view-tui/config"
 import { SessionController } from "@gco/controller-session"
-import { CredentialRepository, EventRepository, SessionRepository, ProjectRepository } from "@gco/model-domain"
+import {
+  CredentialRepository,
+  EventRepository,
+  SessionRepository,
+  ProjectRepository,
+  type Credential,
+  type Integration,
+} from "@gco/model-domain"
 import { McpController } from "@gco/controller-mcp"
 import { QuestionTool, ToolRegistryService } from "@gco/controller-tool"
 import { QuestionStore } from "@gco/controller-tool/QuestionStore"
 import { AgentRegistry, AgentController } from "@gco/controller-agent"
 import { ProductionLayer } from "../bootstrap.js"
+import { ensureProject, deriveProjectID } from "../project-setup.js"
+import { listAllSkills } from "../skill-resolver.js"
 import { startTuiServer, type TuiServerServices } from "../tui-server.js"
 
 // ---------------------------------------------------------------------------
@@ -107,17 +116,56 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
       const sessionRepo  = await rt.runPromise(SessionRepository)
       const projectRepo  = await rt.runPromise(ProjectRepository)
       const credRepo     = await rt.runPromise(CredentialRepository)
+
+      // Populate the projects table for cwd before any session references it.
+      await rt.runPromise(ensureProject(cwd)).catch((err) => {
+        process.stderr.write(`[project] ensureProject failed: ${err}\n`)
+      })
+      const currentProjectID = deriveProjectID(cwd)
       const mcpCtrl      = await rt.runPromise(McpController.Service)
       const agentCtrl    = await rt.runPromise(AgentController.Service)
       const toolRegistry = await rt.runPromise(ToolRegistryService)
 
-      // Load stored API keys into env vars so ModelResolver picks them up
+      // Seed credentials from neko.json into the SQLite store on first launch.
+      // Idempotent: only inserts a row for a provider that has no rows yet.
+      // After the seed, the SQLite table is authoritative; providers login
+      // writes only there.
+      try {
+        const cfgFile = Bun.file(path.join(directory, "neko.json"))
+        if (await cfgFile.exists()) {
+          const cfg = (await cfgFile.json().catch(() => ({}))) as {
+            provider?: Record<string, { apiKey?: string }>
+          }
+          for (const [providerID, entry] of Object.entries(cfg.provider ?? {})) {
+            const key = entry?.apiKey
+            if (typeof key !== "string" || key.length === 0) continue
+            const existing = await rt
+              .runPromise(credRepo.list(providerID as Integration.ID))
+              .catch(() => [] as Credential.Value[])
+            if ((existing as any[]).length > 0) continue
+            await rt
+              .runPromise(
+                credRepo.create({
+                  integrationID: providerID as Integration.ID,
+                  label: `${providerID} API Key`,
+                  value: { type: "key", key } satisfies Credential.Key,
+                }),
+              )
+              .catch(() => undefined)
+          }
+        }
+      } catch {
+        // best effort — seeding is optional
+      }
+
+      // Hoist stored keys into env so ModelResolver picks them up.
       const storedCreds = await rt.runPromise(credRepo.all()).catch(() => [] as any[])
       for (const cred of storedCreds) {
         if ((cred as any).value?.type === "key" && (cred as any).value?.key) {
           const pid = String((cred as any).integrationID)
           if (pid === "deepseek")  process.env.DEEPSEEK_API_KEY  = (cred as any).value.key
           if (pid === "anthropic") process.env.ANTHROPIC_API_KEY = (cred as any).value.key
+          if (pid === "openai")    process.env.OPENAI_API_KEY    = (cred as any).value.key
         }
       }
 
@@ -201,6 +249,9 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         abortSession: (sid) =>
           rt.runPromise(sessionCtrl.interrupt(sid as any)).catch(() => {}),
 
+        compactSession: (sid) =>
+          rt.runPromise(sessionCtrl.compact(sid as any)).catch(() => {}),
+
         updateSession: async (sid, patch) => {
           await rt.runPromise(sessionRepo.update(sid as any, patch as any)).catch(() => {})
           return rt.runPromise(sessionCtrl.get(sid as any)).catch(() => null)
@@ -209,7 +260,7 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         forkSession: async (sid) => {
           const parent = await rt.runPromise(sessionCtrl.get(sid as any)).catch(() => null)
           if (!parent) return null
-          const projectID = (parent as any).projectID ?? encodeURIComponent(cwd)
+          const projectID = (parent as any).projectID ?? currentProjectID
           return rt.runPromise(sessionCtrl.create({
             projectID,
             title: `Fork of ${(parent as any).title ?? sid}`,
@@ -230,20 +281,13 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         },
 
         listSkills: async () => {
-          const skillsDir = path.join(directory, "skills")
-          try {
-            const glob = new Bun.Glob("*.md")
-            const skills: Array<{ id: string; name: string; description: string; body: string }> = []
-            for await (const file of glob.scan({ cwd: skillsDir, absolute: false })) {
-              const name = file.replace(/\.md$/, "")
-              const body = await Bun.file(path.join(skillsDir, file)).text()
-              const description = body.split("\n").find((l) => l.trim()) ?? ""
-              skills.push({ id: name, name, description, body })
-            }
-            return skills.sort((a, b) => a.name.localeCompare(b.name))
-          } catch {
-            return []
-          }
+          const skills = await listAllSkills(directory).catch(() => [])
+          return skills.map((s) => ({
+            id: s.id,
+            name: s.name,
+            description: s.description,
+            body: s.body,
+          }))
         },
 
         listTools: () =>
@@ -326,34 +370,28 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
         },
 
         setProviderKey: async (providerID: string, key: string) => {
-          const creds = await rt.runPromise(credRepo.all()).catch(() => [] as any[])
-          const existing = creds.find((c: any) => String(c.integrationID) === providerID)
-          if (existing) {
-            await rt.runPromise(
-              credRepo.update((existing as any).id, { value: { type: "key", key } as any }),
-            ).catch(() => {})
+          const existing = await rt
+            .runPromise(credRepo.list(providerID as Integration.ID))
+            .catch(() => [] as any[])
+          const value: Credential.Key = { type: "key", key }
+          if (existing.length > 0) {
+            await rt
+              .runPromise(credRepo.update((existing[0] as any).id, { value }))
+              .catch(() => {})
           } else {
-            await rt.runPromise(
-              credRepo.create({
-                integrationID: providerID as any,
-                label: `${providerID} API Key`,
-                value: { type: "key", key } as any,
-              }),
-            ).catch(() => {})
+            await rt
+              .runPromise(
+                credRepo.create({
+                  integrationID: providerID as Integration.ID,
+                  label: `${providerID} API Key`,
+                  value,
+                }),
+              )
+              .catch(() => {})
           }
           if (providerID === "deepseek")  process.env.DEEPSEEK_API_KEY  = key
           if (providerID === "anthropic") process.env.ANTHROPIC_API_KEY = key
           if (providerID === "openai")    process.env.OPENAI_API_KEY    = key
-          // Persist to neko.json so the key survives restarts — the startup
-          // path in this same file (line ~155) reads `provider.<id>.apiKey`
-          // and re-hydrates the env var.
-          try {
-            const cfgPath = path.join(directory, "neko.json")
-            const file = Bun.file(cfgPath)
-            const existing = await file.exists() ? await file.json().catch(() => ({})) : {}
-            existing.provider = { ...(existing.provider ?? {}), [providerID]: { ...(existing.provider?.[providerID] ?? {}), apiKey: key } }
-            await Bun.write(cfgPath, JSON.stringify(existing, null, 2) + "\n")
-          } catch { /* best effort — env + credRepo already hold it for this run */ }
         },
 
         listQuestions:  (sessionID) => Promise.resolve(questionStore.list(sessionID)),

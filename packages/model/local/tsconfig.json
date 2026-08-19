@@ -5,8 +5,7 @@
     "paths": {
       "@gco/schema": ["../../shared/schema/src/index.ts"],
       "@gco/schema/*": ["../../shared/schema/src/*.ts"],
-      "@gco/model-domain": ["../domain/src/index.ts"],
-      "@gco/cloud": ["../../cloud/src/index.ts"]
+      "@gco/model-domain": ["../../model/domain/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"]

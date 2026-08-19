@@ -100,6 +100,7 @@ export interface Interface {
     sessionID: Session.ID,
     messageID: SessionMessage.ID,
   ) => Effect.Effect<void, NotFoundError | MessageNotFoundError | Error>
+  readonly compact: (sessionID: Session.ID) => Effect.Effect<void, NotFoundError | Error>
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +275,15 @@ export const layer: Layer.Layer<
           Effect.forkDetach,
           Effect.asVoid,
         )
+      }),
+
+      // ── compact ─────────────────────────────────────────────────────────
+      // Trigger manual compaction — summarize old messages and write a
+      // compaction checkpoint. Runs in the background so the caller does
+      // not block on the LLM summary call.
+      compact: Effect.fn("SessionController.compact")(function* (sessionID) {
+        yield* getOrFail(sessionID)
+        yield* runner.compact(sessionID).pipe(Effect.forkDetach, Effect.asVoid)
       }),
 
       // ── revert ──────────────────────────────────────────────────────────

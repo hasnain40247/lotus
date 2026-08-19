@@ -1,6 +1,6 @@
 # neko
 
-AI coding assistant CLI — terminal-only, single-user, MVC architecture backed by Google Cloud.
+AI coding assistant CLI — terminal-only, single-user, MVC architecture with local persistence.
 
 ## Architecture
 
@@ -8,37 +8,29 @@ MVC monorepo built with Bun + TypeScript + Effect-TS. Full architecture spec is 
 
 ```
 packages/
-  shared/       schema/, llm/           — foundation, no business logic
-  model/        domain/, firestore/, secrets/, test/  — data layer
-  controller/   cli/, session/, agent/, mcp/, tool/   — orchestration
-  view/         tui/, cli/              — terminal output only
-  cloud/                            — all @google-cloud/* SDK wrappers
+  shared/       schema/, llm/                             — foundation, no business logic
+  model/        domain/, local/, test/                    — data layer
+  controller/   cli/, session/, agent/, mcp/, tool/       — orchestration
+  view/         tui/, cli/                                — terminal output only
 ```
 
-**Layer boundary rule:** `view/*` never imports from `model/firestore` or `cloud`. `controller/*` never imports from `view/*`. `model/*` never imports from `controller/*`.
+**Layer boundary rule:** `view/*` never imports from `model/local`. `controller/*` never imports from `view/*`. `model/*` never imports from `controller/*`.
 
 ## LLM Providers
 
-Four providers only: **Anthropic**, **Vertex AI** (Gemini via GCP), **DeepSeek**, **Ollama** (local).
+Three providers: **Anthropic**, **DeepSeek**, **OpenAI**, plus **Ollama** (local). API keys live in `neko.json` under `provider.{id}.apiKey`.
 
-## GCP Services
+## Local storage
 
-Five services: Firestore (sessions/events), Secret Manager (API keys), Cloud Storage (exports), Vertex AI (Gemini), Cloud Logging.
+State lives under `$XDG_DATA_HOME/neko/` (defaults to `~/.local/share/neko/`):
 
-## GCP Setup
-
-```bash
-# One-time local auth — all @google-cloud/* SDKs pick this up automatically
-gcloud auth application-default login
-
-# Add to your neko.json
-{
-  "gcp": {
-    "projectId": "your-gcp-project-id",
-    "region": "us-central1"
-  }
-}
 ```
+~/.local/share/neko/
+  ├─ neko.db                             # SQLite: sessions, projects, permissions
+  └─ events/{sessionID}/{seq}.json       # append-only event stream, one file per event
+```
+
+Zero cloud calls. No auth setup. Delete the directory to reset.
 
 ## Development
 
@@ -48,7 +40,7 @@ bun install
 # Run the TUI
 bun run dev
 
-# Run tests (uses in-memory model layer — no GCP needed)
+# Run tests (uses in-memory model layer)
 bun test
 
 # Type check all packages
@@ -58,23 +50,15 @@ bun run typecheck
 bun run lint
 ```
 
-## Testing Without GCP
-
-All controllers have an in-memory test layer in `packages/model/test/`. Tests wire `InMemorySessionRepository` etc. instead of Firestore — no credentials or network required.
-
-```bash
-bun test  # uses in-memory layer automatically
-```
-
 ## Key Files
 
 | File | Purpose |
 |---|---|
 | `ARCHITECTURE_PLAN.md` | Full architectural decisions and rationale |
-| `packages/controller/cli/src/bootstrap.ts` | Effect Layer composition root (GCP vs test) |
-| `packages/cloud/src/vertex/VertexAiProvider.ts` | Gemini provider implementation |
-| `packages/model/domain/src/repositories/` | Repository interfaces all implementations must satisfy |
-| `packages/model/firestore/src/` | Firestore implementations of all repos |
+| `packages/controller/cli/src/bootstrap.ts` | Effect Layer composition root (prod vs test) |
+| `packages/model/domain/src/repositories/` | Repository interfaces all implementations satisfy |
+| `packages/model/local/src/` | SQLite + JSON event log implementations |
+| `packages/model/local/src/db.ts` | Schema + migration runner |
 | `packages/model/test/src/` | In-memory implementations for testing |
 
 ## Commands
@@ -84,15 +68,14 @@ neko                  # open TUI (default)
 neko run "prompt"     # non-interactive single prompt
 neko session list     # list sessions
 neko session delete   # delete a session
-neko export           # export session to Cloud Storage
-neko import           # import a session
-neko providers        # manage LLM provider auth
+neko providers        # manage provider API keys in neko.json
 neko models           # list available models
 neko agent list       # list configured agents
 neko agent create     # create a new agent
 neko mcp list         # list MCP servers
 neko mcp add          # add an MCP server
 neko mcp auth         # authenticate with an MCP server
+neko db path          # print local storage paths
 neko upgrade          # upgrade to latest version
 neko uninstall        # uninstall
 ```

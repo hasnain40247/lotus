@@ -1,13 +1,13 @@
 /**
- * ProvidersCommand — manage AI providers and credentials.
+ * ProvidersCommand — manage AI providers and API keys.
  *
- * Only the 4 supported providers are handled:
- *   anthropic, vertex-ai, deepseek, ollama
+ * Keys live in the SQLite `credentials` table (see @gco/model-local). This
+ * command is a thin wrapper around `CredentialRepository`.
  *
  * Subcommands:
- *   list   — list providers + auth status
- *   login  — store credentials for a provider
- *   logout — remove stored credentials
+ *   list   — show providers + whether a key is stored
+ *   login  — save an API key for a provider
+ *   logout — remove a stored API key
  */
 
 import type { CommandModule, Argv } from "yargs"
@@ -15,8 +15,7 @@ import * as prompts from "@clack/prompts"
 import { EOL } from "node:os"
 import { Effect } from "effect"
 import { formatProviderList, color, type ProviderInfo } from "@gco/view-cli"
-import { CredentialRepository } from "@gco/model-domain"
-import type { Integration, Credential } from "@gco/schema"
+import { CredentialRepository, type Credential, type Integration } from "@gco/model-domain"
 import { ProductionLayer } from "../bootstrap.js"
 
 // ---------------------------------------------------------------------------
@@ -26,19 +25,15 @@ import { ProductionLayer } from "../bootstrap.js"
 const SUPPORTED_PROVIDERS: ReadonlyArray<{
   readonly id: string
   readonly name: string
-  readonly authKind: "api-key" | "oauth" | "local" | "adc"
+  readonly authKind: "api-key" | "local"
 }> = [
-  { id: "anthropic",  name: "Anthropic",  authKind: "api-key" },
-  { id: "vertex-ai",  name: "Vertex AI",  authKind: "adc"     },
-  { id: "deepseek",   name: "DeepSeek",   authKind: "api-key" },
-  { id: "ollama",     name: "Ollama",     authKind: "local"   },
+  { id: "anthropic", name: "Anthropic", authKind: "api-key" },
+  { id: "deepseek",  name: "DeepSeek",  authKind: "api-key" },
+  { id: "openai",    name: "OpenAI",    authKind: "api-key" },
+  { id: "ollama",    name: "Ollama",    authKind: "local"   },
 ]
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function toIntegrationID(id: string): Integration.ID {
+function asIntegrationID(id: string): Integration.ID {
   return id as unknown as Integration.ID
 }
 
@@ -49,26 +44,20 @@ function toIntegrationID(id: string): Integration.ID {
 const ProvidersListCommand: CommandModule<object, object> = {
   command: "list",
   aliases: ["ls"],
-  describe: "list providers and credentials",
+  describe: "list providers and stored API keys",
 
   handler: async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
-        const credRepo = yield* CredentialRepository
-
-        const allCreds = yield* credRepo.all().pipe(
-          Effect.catch(() => Effect.succeed([] as any[])),
-        )
-
-        const credsByIntegration = new Set(allCreds.map((c: any) => String(c.integrationID)))
-
+        const creds = yield* CredentialRepository
+        const all = yield* creds.all().pipe(Effect.catch(() => Effect.succeed([] as any[])))
+        const configured = new Set(all.map((c: any) => String(c.integrationID)))
         const providers: ProviderInfo[] = SUPPORTED_PROVIDERS.map((p) => ({
           id: p.id,
           name: p.name,
-          hasKey: p.authKind === "local" || credsByIntegration.has(p.id),
+          hasKey: p.authKind === "local" || configured.has(p.id),
           authKind: p.authKind,
         }))
-
         process.stdout.write(EOL + formatProviderList(providers) + EOL)
       }).pipe(
         Effect.catch((err: unknown) => {
@@ -94,7 +83,7 @@ type LoginArgs = { provider?: string }
 
 const ProvidersLoginCommand: CommandModule<object, LoginArgs> = {
   command: "login [provider]",
-  describe: "log in to a provider",
+  describe: "save an API key for a provider",
 
   builder: (yargs: Argv) =>
     yargs
@@ -111,10 +100,9 @@ const ProvidersLoginCommand: CommandModule<object, LoginArgs> = {
   handler: async (args) => {
     await Effect.runPromise(
       Effect.gen(function* () {
-        prompts.intro("Add credential")
+        prompts.intro("Save API key")
 
         let providerID = args.provider
-
         if (!providerID) {
           const selected = yield* Effect.promise(() =>
             prompts.select({
@@ -122,10 +110,6 @@ const ProvidersLoginCommand: CommandModule<object, LoginArgs> = {
               options: SUPPORTED_PROVIDERS.filter((p) => p.authKind !== "local").map((p) => ({
                 label: p.name,
                 value: p.id,
-                hint:
-                  p.authKind === "adc"
-                    ? "uses Application Default Credentials"
-                    : undefined,
               })),
             }),
           )
@@ -133,7 +117,7 @@ const ProvidersLoginCommand: CommandModule<object, LoginArgs> = {
             prompts.outro("Cancelled")
             return
           }
-          providerID = selected
+          providerID = selected as string
         }
 
         const provider = SUPPORTED_PROVIDERS.find((p) => p.id === providerID)
@@ -142,24 +126,12 @@ const ProvidersLoginCommand: CommandModule<object, LoginArgs> = {
           prompts.outro("Done")
           return
         }
-
         if (provider.authKind === "local") {
           prompts.log.info(`${provider.name} runs locally — no credentials needed.`)
           prompts.outro("Done")
           return
         }
 
-        if (provider.authKind === "adc") {
-          prompts.log.info(
-            `${provider.name} uses Application Default Credentials (ADC).` +
-              EOL +
-              `Run: gcloud auth application-default login`,
-          )
-          prompts.outro("Done")
-          return
-        }
-
-        // api-key flow
         const apiKey = yield* Effect.promise(() =>
           prompts.password({
             message: `Enter your ${provider.name} API key`,
@@ -171,14 +143,23 @@ const ProvidersLoginCommand: CommandModule<object, LoginArgs> = {
           return
         }
 
-        const credRepo = yield* CredentialRepository
-        yield* credRepo
-          .create({
-            integrationID: toIntegrationID(providerID),
-            label: `${provider.name} API Key`,
-            value: { type: "key", key: apiKey } satisfies Credential.Key,
-          })
-          .pipe(Effect.catch(() => Effect.void))
+        const creds = yield* CredentialRepository
+        const existing = yield* creds
+          .list(asIntegrationID(provider.id))
+          .pipe(Effect.catch(() => Effect.succeed([] as any[])))
+        const value: Credential.Key = { type: "key", key: apiKey as string }
+        if (existing.length > 0) {
+          // Replace the first record's value in place so we don't accumulate rows.
+          yield* creds.update((existing[0] as any).id, { value }).pipe(Effect.catch(() => Effect.void))
+        } else {
+          yield* creds
+            .create({
+              integrationID: asIntegrationID(provider.id),
+              label: `${provider.name} API Key`,
+              value,
+            })
+            .pipe(Effect.catch(() => Effect.void))
+        }
 
         prompts.log.success(`Saved ${provider.name} API key`)
         prompts.outro("Done")
@@ -206,7 +187,7 @@ type LogoutArgs = { provider?: string }
 
 const ProvidersLogoutCommand: CommandModule<object, LogoutArgs> = {
   command: "logout [provider]",
-  describe: "log out from a configured provider",
+  describe: "remove a stored API key",
 
   builder: (yargs: Argv) =>
     yargs.positional("provider", {
@@ -217,15 +198,12 @@ const ProvidersLogoutCommand: CommandModule<object, LogoutArgs> = {
   handler: async (args) => {
     await Effect.runPromise(
       Effect.gen(function* () {
-        prompts.intro("Remove credential")
+        prompts.intro("Remove API key")
 
-        const credRepo = yield* CredentialRepository
-        const credentials = yield* credRepo.all().pipe(
-          Effect.catch(() => Effect.succeed([] as any[])),
-        )
-
-        if (credentials.length === 0) {
-          prompts.log.warn("No credentials found")
+        const creds = yield* CredentialRepository
+        const all = yield* creds.all().pipe(Effect.catch(() => Effect.succeed([] as any[])))
+        if (all.length === 0) {
+          prompts.log.warn("No API keys configured")
           prompts.outro("Done")
           return
         }
@@ -234,8 +212,8 @@ const ProvidersLogoutCommand: CommandModule<object, LogoutArgs> = {
         if (!providerID) {
           const selected = yield* Effect.promise(() =>
             prompts.select({
-              message: "Select provider to log out",
-              options: credentials.map((c: any) => ({
+              message: "Select provider to remove",
+              options: all.map((c: any) => ({
                 label:
                   SUPPORTED_PROVIDERS.find((p) => p.id === String(c.integrationID))?.name ??
                   String(c.integrationID),
@@ -250,15 +228,14 @@ const ProvidersLogoutCommand: CommandModule<object, LogoutArgs> = {
           providerID = selected as string
         }
 
-        // Remove all credentials for this provider
-        const toRemove = credentials.filter(
-          (c: any) => String(c.integrationID) === providerID,
-        )
+        const toRemove = all.filter((c: any) => String(c.integrationID) === providerID)
         for (const cred of toRemove) {
-          yield* credRepo.remove(cred.id as Credential.ID).pipe(Effect.catch(() => Effect.void))
+          yield* creds
+            .remove((cred as any).id as Credential.ID)
+            .pipe(Effect.catch(() => Effect.void))
         }
 
-        prompts.log.success(`Logged out from ${providerID}`)
+        prompts.log.success(`Removed API key for ${providerID}`)
         prompts.outro("Done")
       }).pipe(
         Effect.catch((err: unknown) => {
@@ -283,7 +260,7 @@ const ProvidersLogoutCommand: CommandModule<object, LogoutArgs> = {
 export const ProvidersCommand: CommandModule<object, object> = {
   command: "providers",
   aliases: ["auth"],
-  describe: "manage AI providers and credentials",
+  describe: "manage AI providers and API keys",
 
   builder: (yargs: Argv) =>
     yargs

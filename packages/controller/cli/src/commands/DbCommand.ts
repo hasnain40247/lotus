@@ -1,57 +1,29 @@
 /**
- * DbCommand — database tools.
+ * DbCommand — inspect the on-disk data store.
  *
- * For neko, the "database" is Firestore.
- * The path subcommand prints the Firestore project/collection info
- * instead of a SQLite file path.
+ * neko persists state locally under `$XDG_DATA_HOME/neko` (defaults to
+ * `~/.local/share/neko`). This command prints the resolved paths so the
+ * user can `sqlite3` / `ls` them directly.
  *
  * Subcommands:
- *   path — print Firestore project and collection configuration
+ *   path — print local data paths
  */
 
 import type { CommandModule, Argv } from "yargs"
 import { EOL } from "node:os"
-import { Effect } from "effect"
-import { GcpConfig } from "@gco/cloud"
 import { color } from "@gco/view-cli"
-import { ProductionLayer } from "../bootstrap.js"
-
-// ---------------------------------------------------------------------------
-// path subcommand
-// ---------------------------------------------------------------------------
+import { dataRoot, dbPath, eventsRoot } from "@gco/model-local"
 
 const DbPathCommand: CommandModule<object, object> = {
   command: "path",
-  describe: "print Firestore project and collection information",
+  describe: "print local storage paths",
 
   handler: async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const config = yield* GcpConfig
-        process.stdout.write(
-          `Project:    ${color.bold(config.projectId)}` + EOL,
-        )
-        process.stdout.write(`Region:     ${config.region}` + EOL)
-        process.stdout.write(
-          `Collection: gco/sessions, gco/events, gco/credentials` + EOL,
-        )
-      }).pipe(
-        Effect.catch((_err) => {
-          // Fallback: print env var info when GCP config is not available
-          process.stdout.write(
-            `GCP Project: ${process.env.NEKO_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "(not set)"}` + EOL,
-          )
-          return Effect.void
-        }),
-        Effect.provide(ProductionLayer),
-      ),
-    )
+    process.stdout.write(`Data root:  ${color.bold(dataRoot())}` + EOL)
+    process.stdout.write(`SQLite DB:  ${dbPath()}` + EOL)
+    process.stdout.write(`Events:     ${eventsRoot()}/{sessionID}/{seq}.json` + EOL)
   },
 }
-
-// ---------------------------------------------------------------------------
-// Top-level DbCommand
-// ---------------------------------------------------------------------------
 
 export const DbCommand: CommandModule<object, object> = {
   command: "db",

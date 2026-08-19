@@ -14,7 +14,6 @@
     "./providers/deepseek": "./src/providers/deepseek.ts",
     "./providers/ollama": "./src/providers/ollama.ts",
     "./providers/openai": "./src/providers/openai.ts",
-    "./providers/vertex": "./src/providers/vertex.ts",
     "./protocols": "./src/protocols/index.ts",
     "./protocols/anthropic-messages": "./src/protocols/anthropic-messages.ts",
     "./protocols/gemini": "./src/protocols/gemini.ts",

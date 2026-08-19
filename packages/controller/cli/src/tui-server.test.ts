@@ -25,6 +25,7 @@ const mockServices: TuiServerServices = {
   loadEvents: async () => [],
   archiveSession: async () => {},
   abortSession: async () => {},
+  compactSession: async () => {},
   updateSession: async (_id, patch) => ({ ...mockSession, ...patch }),
   forkSession: async (_id) => ({ ...mockSession, id: "forked-session", title: "Fork" }),
   revertSession: async () => {},

@@ -11,22 +11,39 @@ import {
 } from "../palette"
 
 export type SlashCommand = SlashCommandSchema.Info
-export const SLASH_COMMANDS: readonly SlashCommand[] = SlashCommandSchema.registry
+export type SkillEntry = { readonly name: string; readonly description: string }
 
-// Active commands first (alphabetical), then todo (alphabetical). This lets
-// the palette split into two visible sections without any per-render sort.
-const statusRank = (c: SlashCommand): number => (c.status === "todo" ? 1 : 0)
+// Ordering in grouped mode: Active → Skills → To do. Alphabetical inside each.
+const statusRank = (c: SlashCommand): number => {
+  if (c.status === "todo") return 2
+  if (c.status === "skill") return 1
+  return 0
+}
 
-export function filterSlashCommands(query: string): SlashCommand[] {
+/** Merge the static schema registry with runtime-discovered skills. */
+function buildCommands(skills: readonly SkillEntry[]): SlashCommand[] {
+  const skillCmds: SlashCommand[] = skills.map((s) => ({
+    name: s.name,
+    description: s.description || "Skill from ./skills or ~/.config/neko/skills",
+    status: "skill" as const,
+  }))
+  return [...SlashCommandSchema.registry, ...skillCmds]
+}
+
+export function filterSlashCommands(
+  query: string,
+  skills: readonly SkillEntry[] = [],
+): SlashCommand[] {
+  const all = buildCommands(skills)
   const q = query.trim().toLowerCase()
   if (!q) {
-    return [...SLASH_COMMANDS].sort(
+    return all.sort(
       (a, b) => statusRank(a) - statusRank(b) || a.name.localeCompare(b.name),
     )
   }
 
   const matches: Array<{ cmd: SlashCommand; score: number }> = []
-  for (const cmd of SLASH_COMMANDS) {
+  for (const cmd of all) {
     const names = [cmd.name, ...(cmd.aliases ?? [])]
     let best = -1
     for (const n of names) {
@@ -39,6 +56,11 @@ export function filterSlashCommands(query: string): SlashCommand[] {
   }
   matches.sort((a, b) => b.score - a.score || a.cmd.name.localeCompare(b.cmd.name))
   return matches.map((m) => m.cmd)
+}
+
+/** True if `name` refers to a runtime-discovered skill (not a builtin). */
+export function isSkillName(name: string, skills: readonly SkillEntry[]): boolean {
+  return skills.some((s) => s.name === name)
 }
 
 export const PALETTE_VIEWPORT = 8
@@ -73,16 +95,22 @@ export function SlashPalette(props: {
       return cmds.map((cmd, i) => ({ kind: "cmd" as const, cmd, itemIndex: i }))
     }
     const active: Row[] = []
+    const skills: Row[] = []
     const todo: Row[] = []
     cmds.forEach((cmd, i) => {
       const row = { kind: "cmd" as const, cmd, itemIndex: i }
       if (cmd.status === "todo") todo.push(row)
+      else if (cmd.status === "skill") skills.push(row)
       else active.push(row)
     })
     const out: Row[] = []
     if (active.length > 0) {
       out.push({ kind: "heading", label: "Active" })
       out.push(...active)
+    }
+    if (skills.length > 0) {
+      out.push({ kind: "heading", label: "Skills" })
+      out.push(...skills)
     }
     if (todo.length > 0) {
       out.push({ kind: "heading", label: "To do" })

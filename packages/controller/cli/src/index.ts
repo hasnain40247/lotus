@@ -32,19 +32,8 @@ import { EOL } from "node:os"
 
 // Commands
 import { TuiCommand } from "./commands/TuiCommand.js"
-import { RunCommand } from "./commands/RunCommand.js"
-import { SessionCommand } from "./commands/SessionCommand.js"
-import { AgentCommand } from "./commands/AgentCommand.js"
-import { McpCommand } from "./commands/McpCommand.js"
-import { ProvidersCommand } from "./commands/ProvidersCommand.js"
-import { ModelsCommand } from "./commands/ModelsCommand.js"
-import { SkillCommand } from "./commands/SkillCommand.js"
-import { DbCommand } from "./commands/DbCommand.js"
-import { GenerateCommand } from "./commands/GenerateCommand.js"
 import { UninstallCommand } from "./commands/UninstallCommand.js"
 import { UpgradeCommand } from "./commands/UpgradeCommand.js"
-import { DebugCommand } from "./commands/DebugCommand.js"
-import { PromptDisplayCommand } from "./commands/PromptDisplayCommand.js"
 
 // ---------------------------------------------------------------------------
 // Version
@@ -69,30 +58,9 @@ const cli = yargs(args)
   .usage("")
   // Default command — launches TUI
   .command(TuiCommand)
-  // Non-interactive run
-  .command(RunCommand)
-  // Session management
-  .command(SessionCommand)
-  // Agent management
-  .command(AgentCommand)
-  // MCP server management
-  .command(McpCommand)
-  // Provider / credential management
-  .command(ProvidersCommand)
-  // Model listing
-  .command(ModelsCommand)
-  // Skill scaffolding
-  .command(SkillCommand)
-  // Database / local storage info
-  .command(DbCommand)
-  // Code generation
-  .command(GenerateCommand)
   // Maintenance
   .command(UninstallCommand)
   .command(UpgradeCommand)
-  // Developer tools
-  .command(DebugCommand)
-  .command(PromptDisplayCommand)
   .strict()
   .fail((msg, err) => {
     if (

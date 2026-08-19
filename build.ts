@@ -16,7 +16,7 @@ console.log(`[build] target=${TARGET} outfile=${OUTFILE}`)
 const result = await Bun.build({
   entrypoints: ["packages/controller/cli/src/index.ts"],
   compile: {
-    target: TARGET as `bun-${string}`,
+    target: TARGET as any,
     outfile: OUTFILE,
   },
   plugins: [createSolidTransformPlugin()],

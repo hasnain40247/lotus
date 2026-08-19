@@ -1,6 +1,6 @@
 # Neko
 
-A terminal-based AI pair programmer, built with an MVC architecture on Google Cloud. Single-user by design, four LLM providers, first-class MCP support.
+A terminal-based AI pair programmer. Single-user by design, two LLM providers, first-class MCP support, fully local storage.
 
 <p align="center">
   <img src="./assets/image.png" alt="Neko running in a terminal" width="820" />
@@ -9,21 +9,17 @@ A terminal-based AI pair programmer, built with an MVC architecture on Google Cl
 ## Features
 
 - **Full terminal UI** — SolidJS + OpenTUI, keyboard-driven, warm paper light theme and neutral dark theme
-- **MVC architecture** — strict layer boundaries enforced by ESLint
-- **4 LLM providers** — Anthropic (Claude), Vertex AI (Gemini), DeepSeek, Ollama
-- **Google Cloud backend** — Firestore sessions, Secret Manager credentials, Cloud Storage exports, Cloud Logging
+- **2 LLM providers** — Anthropic (Claude), DeepSeek
+- **Local storage** — SQLite + JSON event log under `~/.local/share/neko/`, zero cloud calls
 - **MCP support** — Model Context Protocol client with OAuth; MCP tools are merged into the LLM's tool catalog so the model can call them directly
 - **Built-in tools** — bash, file ops, web, LSP, subagents, and more
 - **Named agents** — configurable system prompts, models, and permissions per agent
-- **Session history** — persistent across machines via Firestore
 - **Slash commands** — `/agent`, `/mcp`, `/theme`, `/rename`, `/compact`, `/timeline`, and more
 - **@ file mentions** — fuzzy-search files from the current project and drop them into your prompt inline
 
 ## Requirements
 
-- [Bun](https://bun.sh) 1.3+
-- [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) with a GCP project
-- (Optional) [Ollama](https://ollama.ai) for local models
+- [Bun](https://bun.sh) 1.3+ (only needed to build — the compiled binary embeds the runtime)
 
 ## Install
 
@@ -48,17 +44,6 @@ mv ./dist/neko ~/.local/bin/neko
 # Verify
 neko --version
 ```
-
-Cross-compile for other platforms with `BUILD_TARGET` and `BUILD_OUTFILE`:
-
-```bash
-BUILD_TARGET=bun-darwin-x64   BUILD_OUTFILE=./dist/neko-darwin-x64   bun run build
-BUILD_TARGET=bun-linux-x64    BUILD_OUTFILE=./dist/neko-linux-x64    bun run build
-BUILD_TARGET=bun-linux-arm64  BUILD_OUTFILE=./dist/neko-linux-arm64  bun run build
-BUILD_TARGET=bun-windows-x64  BUILD_OUTFILE=./dist/neko.exe          bun run build
-```
-
-Each target produces a self-contained binary — copy it to a matching machine and run.
 
 ### Option 2: Run from source (recommended for development)
 
@@ -94,28 +79,12 @@ rm $(which neko)
 rm -rf ~/.local/share/neko    # local session data
 ```
 
-## GCP Setup
+## Configure
 
-```bash
-# Authenticate with GCP
-gcloud auth application-default login
-
-# Enable required APIs
-gcloud services enable firestore.googleapis.com \
-  secretmanager.googleapis.com \
-  storage.googleapis.com \
-  aiplatform.googleapis.com \
-  logging.googleapis.com
-```
-
-Add a `gcp` block to your project's `neko.json`:
+Provider API keys go in `neko.json` in your project directory:
 
 ```jsonc
 {
-  "gcp": {
-    "projectId": "your-gcp-project-id",
-    "region": "us-central1"
-  },
   "provider": {
     "anthropic": { "apiKey": "sk-ant-..." },
     "deepseek":  { "apiKey": "sk-..." }
@@ -123,7 +92,7 @@ Add a `gcp` block to your project's `neko.json`:
 }
 ```
 
-> Vertex AI and Ollama require no API key — Vertex uses your GCP credentials, Ollama runs locally.
+Or manage them interactively via `neko providers`. Keys can also be read from environment variables (`ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`).
 
 ## Usage
 
@@ -159,9 +128,7 @@ neko db path
 
 ```bash
 neko --model anthropic/claude-sonnet-4-6
-neko --model vertex-ai/gemini-2.0-flash-001
 neko --model deepseek/deepseek-chat
-neko --model ollama/llama3.2
 ```
 
 ## Slash Commands
@@ -189,7 +156,7 @@ Configure agents in `neko.json`, drop an `AGENTS.md` in your project root, or cr
     },
     "reviewer": {
       "system": "You review code for security issues and performance problems only.",
-      "model": "vertex-ai/gemini-2.5-pro-preview-06-05",
+      "model": "anthropic/claude-sonnet-4-6",
       "mode": "subagent",
       "permissions": ["read", "glob", "grep"]
     }
@@ -198,6 +165,26 @@ Configure agents in `neko.json`, drop an `AGENTS.md` in your project root, or cr
 ```
 
 Built-in agents: `build` (default), `plan`, `explore`, `general`, plus the internal `compaction` / `title` / `summary` helpers.
+
+## Skills
+
+Skills are reusable prompt templates surfaced in the slash palette. Two locations:
+
+- `<project>/skills/*.md` — project-local, checked into the repo
+- `~/.config/neko/skills/*.md` — user-global, available everywhere
+
+Project skills override user skills on name collision. Each file is one skill; the filename (minus `.md`) is the slash-command name. Frontmatter is a small `---` block on top — only `description` is used by the palette:
+
+```markdown
+---
+description: Explain the architecture of the current file
+---
+
+You are a code explainer. When invoked, read the file the user is currently
+focused on and produce a concise summary...
+```
+
+List what's registered with `neko skill list`.
 
 ## MCP Servers
 
@@ -235,19 +222,6 @@ bun run lint         # lint all packages
 ```
 
 Runtime logs (runner traces, tui-server requests) are written to `~/.local/share/neko/neko.log` while the TUI is running, so they don't corrupt the render. Tail that file to debug.
-
-## Architecture
-
-```
-packages/
-  shared/       schema, llm providers, sdk
-  model/        domain interfaces, Firestore repos, Secret Manager creds, test layer
-  controller/   CLI commands, session runner, agent, MCP, tools
-  view/         TUI (SolidJS + OpenTUI), CLI formatters
-  cloud/        GCP SDK wrappers (Firestore, Storage, Secret Manager, Vertex AI, Logging)
-```
-
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design decisions and rationale.
 
 ## License
 

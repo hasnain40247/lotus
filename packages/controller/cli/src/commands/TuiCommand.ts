@@ -108,17 +108,13 @@ export const TuiCommand: CommandModule<object, TuiArgs> = {
   builder: (yargs: Argv) =>
     yargs
       .positional("project", { type: "string", describe: "path to start neko in" })
-      .option("model", { type: "string", alias: ["m"], describe: "model to use (provider/model-id)" })
-      .option("prompt", { type: "string", describe: "initial prompt to send" })
-      .option("agent", { type: "string", describe: "agent to use" })
-      .option("auto", {
-        type: "boolean",
-        describe: "auto-approve all permissions (dangerous!)",
-        default: false,
-      })
+      .option("model", { type: "string", alias: ["m"], hidden: true })
+      .option("prompt", { type: "string", hidden: true })
+      .option("agent", { type: "string", hidden: true })
+      .option("auto", { type: "boolean", hidden: true, default: false })
       .option("yolo", { type: "boolean", hidden: true, default: false })
       .option("dangerously-skip-permissions", { type: "boolean", hidden: true, default: false })
-      .option("replay-limit", { type: "number", describe: "cap TUI replay to newest N messages" })
+      .option("replay-limit", { type: "number", hidden: true })
       .option("demo", { type: "boolean", hidden: true }) as unknown as Argv<TuiArgs>,
 
   handler: async (args) => {

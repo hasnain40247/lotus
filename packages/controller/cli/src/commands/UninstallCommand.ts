@@ -1,31 +1,18 @@
 /**
- * UninstallCommand — uninstall neko and remove related files.
+ * UninstallCommand — remove neko and all related files.
  *
- * Options:
- *   --keep-config  keep configuration files
- *   --keep-data    keep session data
- *   --dry-run      show what would be removed without removing
- *   --force        skip confirmation prompts
+ * Interactive: prompts for confirmation before removing anything.
+ * Removes ~/.local/share/neko, ~/.cache/neko, ~/.config/neko, and the
+ * neko binary itself.
  */
 
-import type { CommandModule, Argv } from "yargs"
+import type { CommandModule } from "yargs"
 import * as prompts from "@clack/prompts"
 import { EOL } from "node:os"
 import os from "node:os"
 import path from "node:path"
 import fs from "node:fs/promises"
 import { color } from "@gco/view-cli"
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type UninstallArgs = {
-  keepConfig: boolean
-  keepData: boolean
-  dryRun: boolean
-  force: boolean
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -89,14 +76,26 @@ function cacheDir(): string {
 // Handler
 // ---------------------------------------------------------------------------
 
-async function uninstallHandler(args: UninstallArgs): Promise<void> {
+type TargetKind = "dir" | "file"
+
+async function pathSize(target: { path: string; kind: TargetKind }): Promise<number> {
+  if (target.kind === "file") {
+    const stat = await fs.stat(target.path).catch(() => null)
+    return stat?.size ?? 0
+  }
+  return dirSize(target.path)
+}
+
+async function uninstallHandler(): Promise<void> {
   process.stdout.write(EOL)
   prompts.intro("Uninstall neko")
 
-  const targets: Array<{ path: string; label: string; keep: boolean }> = [
-    { path: dataDir(), label: "Data", keep: args.keepData },
-    { path: cacheDir(), label: "Cache", keep: false },
-    { path: configDir(), label: "Config", keep: args.keepConfig },
+  const targets: Array<{ path: string; label: string; kind: TargetKind }> = [
+    { path: dataDir(),         label: "Data",   kind: "dir"  },
+    { path: cacheDir(),        label: "Cache",  kind: "dir"  },
+    { path: configDir(),       label: "Config", kind: "dir"  },
+    // Binary comes last so a mid-flight failure leaves the exe present for retry.
+    { path: process.execPath,  label: "Binary", kind: "file" },
   ]
 
   prompts.log.message("The following will be removed:")
@@ -105,43 +104,30 @@ async function uninstallHandler(args: UninstallArgs): Promise<void> {
     const exists = await fs.access(target.path).then(() => true).catch(() => false)
     if (!exists) continue
 
-    const size = await dirSize(target.path)
+    const size = await pathSize(target)
     const sizeStr = formatSize(size)
-    const status = target.keep ? color.dim("(keeping)") : ""
-    const prefix = target.keep ? "○" : "✓"
     prompts.log.info(
-      `  ${prefix} ${target.label}: ${shortenPath(target.path)} ${color.gray(`(${sizeStr})`)}${status}`,
+      `  ✓ ${target.label}: ${shortenPath(target.path)} ${color.gray(`(${sizeStr})`)}`,
     )
   }
 
-  if (!args.force && !args.dryRun) {
-    const confirmed = await prompts.confirm({
-      message: "Are you sure you want to uninstall?",
-      initialValue: false,
-    })
-    if (!confirmed || prompts.isCancel(confirmed)) {
-      prompts.outro("Cancelled")
-      return
-    }
-  }
-
-  if (args.dryRun) {
-    prompts.log.warn("Dry run — no changes made")
-    prompts.outro("Done")
+  const confirmed = await prompts.confirm({
+    message: "Are you sure you want to uninstall?",
+    initialValue: false,
+  })
+  if (!confirmed || prompts.isCancel(confirmed)) {
+    prompts.outro("Cancelled")
     return
   }
 
   const spinner = prompts.spinner()
   for (const target of targets) {
-    if (target.keep) {
-      prompts.log.step(`Skipping ${target.label}`)
-      continue
-    }
-
     const exists = await fs.access(target.path).then(() => true).catch(() => false)
     if (!exists) continue
 
     spinner.start(`Removing ${target.label}...`)
+    // macOS allows unlinking a running executable — the inode stays valid
+    // until the process exits, so removing our own binary works here.
     const err = await fs.rm(target.path, { recursive: true, force: true }).catch((e) => e)
     if (err instanceof Error) {
       spinner.stop(`Failed to remove ${target.label}`, 1)
@@ -158,35 +144,9 @@ async function uninstallHandler(args: UninstallArgs): Promise<void> {
 // Command export
 // ---------------------------------------------------------------------------
 
-export const UninstallCommand: CommandModule<object, UninstallArgs> = {
+export const UninstallCommand: CommandModule<object, object> = {
   command: "uninstall",
   describe: "uninstall neko and remove all related files",
 
-  builder: (yargs: Argv) =>
-    yargs
-      .option("keep-config", {
-        alias: "c",
-        type: "boolean",
-        describe: "keep configuration files",
-        default: false,
-      })
-      .option("keep-data", {
-        alias: "d",
-        type: "boolean",
-        describe: "keep session data",
-        default: false,
-      })
-      .option("dry-run", {
-        type: "boolean",
-        describe: "show what would be removed without removing",
-        default: false,
-      })
-      .option("force", {
-        alias: "f",
-        type: "boolean",
-        describe: "skip confirmation prompts",
-        default: false,
-      }) as unknown as Argv<UninstallArgs>,
-
-  handler: (args) => uninstallHandler(args),
+  handler: () => uninstallHandler(),
 }

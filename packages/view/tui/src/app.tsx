@@ -86,9 +86,18 @@ registerNekoSpinner()
 
 // Palette / theme state comes from ./palette (see readGlobalConfig).
 
-// Minimal empty syntax style — the <markdown> element needs one but we don't
-// need code-syntax highlighting inside assistant prose.
-const EMPTY_SYNTAX = SyntaxStyle.fromTheme([])
+// Syntax style for assistant markdown. Tree-sitter's markdown_inline grammar
+// tags `**bold**` as `markup.strong`, `*italic*` as `markup.italic`, and
+// `` `code` `` as `markup.raw` — without matching entries here those spans
+// render as plain text.
+const EMPTY_SYNTAX = SyntaxStyle.fromStyles({
+  "markup.strong": { bold: true },
+  "markup.italic": { italic: true },
+  "markup.strikethrough": { dim: true },
+  "markup.raw": { fg: "#B4531A" },
+  "markup.link.url": { fg: "#2E7D6E", underline: true },
+  "markup.link.label": { fg: "#2E7D6E" },
+})
 
 // Styled syntax used only by the input textarea, so that @-mentions get
 // highlighted (bold + accent color) inline as the user types or completes.

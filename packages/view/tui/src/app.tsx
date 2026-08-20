@@ -38,7 +38,7 @@ import {
 import { nekoCells, nekoLabel, nekoLanding, nekoLandingLabel, rgbHex } from "./logo"
 import { AnimatedCat } from "./component/logo"
 import {
-  ACTIVE_THEME, GLOBAL_CONFIG_PATH, LIGHT_PALETTE, DARK_PALETTE, PALETTE,
+  ACTIVE_THEME, GLOBAL_CONFIG_PATH, LIGHT_PALETTE, DARK_PALETTE, NEKO_LIGHT_PALETTE, NEKO_DARK_PALETTE, PALETTE,
   C_BG, C_EGG, C_WHITE, C_DIM, C_MUTED, C_INPUT, C_ACCENT, C_USER_BG, C_ACTIVE,
 } from "./palette"
 import * as fs from "node:fs"
@@ -777,12 +777,17 @@ function Chat(props: { args: Args }) {
   const exit = useExit()
   const renderer = useRenderer()
 
-  // Terminal width — used to collapse the footer into two rows on narrow terms.
+  // Terminal size — width collapses the footer, height compacts the landing hero.
   const [termWidth, setTermWidth] = createSignal(renderer.terminalWidth)
-  const onTermResize = (w: number) => setTermWidth(w)
+  const [termHeight, setTermHeight] = createSignal(renderer.terminalHeight)
+  const onTermResize = (w: number, h: number) => { setTermWidth(w); setTermHeight(h) }
   renderer.on("resize", onTermResize)
   onCleanup(() => renderer.off("resize", onTermResize))
   const footerNarrow = () => termWidth() < 90
+  // Landing hero: nekoLanding is 18 rows tall + label 3 + padding — needs ~30
+  // rows to sit above the input comfortably. Below that, arrange cat and label
+  // side-by-side instead so both stay visible.
+  const landingCompact = () => termHeight() < 34
 
   // In "auto" we auto-reply "once" to every permission.asked event; in "normal"
   // we surface an inline prompt so the user can allow/always/reject each call.
@@ -1498,12 +1503,29 @@ function Chat(props: { args: Args }) {
         swatchFg: DARK_PALETTE.egg,
         current: ACTIVE_THEME === "dark",
       },
+      {
+        name: "neko-light",
+        label: "Neko Light",
+        description: "sakura cream with hot pink accents",
+        swatchBg: NEKO_LIGHT_PALETTE.bg,
+        swatchFg: NEKO_LIGHT_PALETTE.accent,
+        current: ACTIVE_THEME === "neko-light",
+      },
+      {
+        name: "neko-dark",
+        label: "Neko Dark",
+        description: "deep plum with bright pink accents",
+        swatchBg: NEKO_DARK_PALETTE.bg,
+        swatchFg: NEKO_DARK_PALETTE.accent,
+        current: ACTIVE_THEME === "neko-dark",
+      },
     ]
     return items
   }
 
   function openThemeModal() {
-    setThemeIndex(ACTIVE_THEME === "dark" ? 1 : 0)
+    const idx = themeItems().findIndex((it) => it.name === ACTIVE_THEME)
+    setThemeIndex(idx >= 0 ? idx : 0)
     setThemeModalOpen(true)
   }
   function closeThemeModal() { setThemeModalOpen(false) }
@@ -2749,30 +2771,36 @@ function Chat(props: { args: Args }) {
         <Show when={!hasStartedChat()}>
           <box
             flexShrink={0}
-            flexDirection="column"
+            flexDirection={landingCompact() ? "row" : "column"}
             alignItems="center"
-            paddingTop={7}
+            justifyContent="center"
+            paddingTop={landingCompact() ? 1 : 7}
             paddingBottom={1}
           >
-            <For each={landingCells()}>
-              {(row) => (
-                <text>
-                  <For each={row}>
-                    {(cell) => (
-                      <span style={{ fg: rgbHex(cell.fg), bg: rgbHex(cell.bg) }}>{cell.ch}</span>
-                    )}
-                  </For>
-                </text>
-              )}
-            </For>
-            <box height={1} />
-            <For each={nekoLandingLabel}>
-              {(line) => (
-                <text fg={centerLabelColor()} attributes={TextAttributes.BOLD}>
-                  {line}
-                </text>
-              )}
-            </For>
+            <box flexShrink={0} flexDirection="column">
+              <For each={landingCells()}>
+                {(row) => (
+                  <text>
+                    <For each={row}>
+                      {(cell) => (
+                        <span style={{ fg: rgbHex(cell.fg), bg: rgbHex(cell.bg) }}>{cell.ch}</span>
+                      )}
+                    </For>
+                  </text>
+                )}
+              </For>
+            </box>
+            <Show when={!landingCompact()}><box height={1} /></Show>
+            <Show when={landingCompact()}><box width={2} /></Show>
+            <box flexShrink={0} flexDirection="column">
+              <For each={nekoLandingLabel}>
+                {(line) => (
+                  <text fg={centerLabelColor()} attributes={TextAttributes.BOLD}>
+                    {landingCompact() ? line.trim() : line}
+                  </text>
+                )}
+              </For>
+            </box>
           </box>
         </Show>
         {/* Animated neko perched on its own dark band — sits at the top of

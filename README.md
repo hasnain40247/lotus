@@ -54,7 +54,7 @@ neko --version
 Bypasses the build step so your edits are picked up on the next launch. Requires Bun on the machine at all times.
 
 ```bash
-git clone https://github.com/yourusername/neko
+git clone
 cd neko
 bun install
 

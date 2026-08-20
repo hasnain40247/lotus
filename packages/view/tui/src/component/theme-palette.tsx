@@ -1,7 +1,8 @@
 import { For, Show, type Accessor } from "solid-js"
 import { RGBA, TextAttributes } from "@opentui/core"
 
-export type ThemeName = "light" | "dark"
+export type { ThemeName } from "../palette"
+import type { ThemeName } from "../palette"
 
 export type ThemePaletteItem = {
   name: ThemeName

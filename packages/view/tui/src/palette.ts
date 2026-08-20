@@ -12,7 +12,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 
-export type ThemeName = "light" | "dark"
+export type ThemeName = "light" | "dark" | "neko-light" | "neko-dark"
 
 export type Palette = {
   bg: string        // surface bg
@@ -47,6 +47,28 @@ export const DARK_PALETTE: Palette = {
   userBg: "#333330",
 }
 
+export const NEKO_LIGHT_PALETTE: Palette = {
+  bg:     "#FFF5F8",
+  egg:    "#3D0F26",
+  white:  "#1A0512",
+  dim:    "#8A2D5A",
+  muted:  "#EFA5BF",
+  input:  "#FDE8EF",
+  accent: "#DB2777",
+  userBg: "#F5BFD1",
+}
+
+export const NEKO_DARK_PALETTE: Palette = {
+  bg:     "#1A0E1A",
+  egg:    "#FDE8EF",
+  white:  "#FFFFFF",
+  dim:    "#BFA0AD",
+  muted:  "#4E2E52",
+  input:  "#241627",
+  accent: "#F472B6",
+  userBg: "#3B2440",
+}
+
 export const GLOBAL_CONFIG_PATH = path.join(os.homedir(), ".neko", "config.json")
 
 export function readGlobalConfig(): { theme?: ThemeName } {
@@ -57,8 +79,20 @@ export function readGlobalConfig(): { theme?: ThemeName } {
   }
 }
 
-export const ACTIVE_THEME: ThemeName = readGlobalConfig().theme === "dark" ? "dark" : "light"
-export const PALETTE: Palette = ACTIVE_THEME === "dark" ? DARK_PALETTE : LIGHT_PALETTE
+const PALETTES: Record<ThemeName, Palette> = {
+  "light":      LIGHT_PALETTE,
+  "dark":       DARK_PALETTE,
+  "neko-light": NEKO_LIGHT_PALETTE,
+  "neko-dark":  NEKO_DARK_PALETTE,
+}
+
+function pickTheme(value: unknown): ThemeName {
+  if (value === "dark" || value === "neko-light" || value === "neko-dark") return value
+  return "light"
+}
+
+export const ACTIVE_THEME: ThemeName = pickTheme(readGlobalConfig().theme)
+export const PALETTE: Palette = PALETTES[ACTIVE_THEME]
 
 // Convenience RGBA constants — same names the palette components already use.
 export const C_BG      = RGBA.fromHex(PALETTE.bg)

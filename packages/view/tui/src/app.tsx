@@ -777,6 +777,13 @@ function Chat(props: { args: Args }) {
   const exit = useExit()
   const renderer = useRenderer()
 
+  // Terminal width — used to collapse the footer into two rows on narrow terms.
+  const [termWidth, setTermWidth] = createSignal(renderer.terminalWidth)
+  const onTermResize = (w: number) => setTermWidth(w)
+  renderer.on("resize", onTermResize)
+  onCleanup(() => renderer.off("resize", onTermResize))
+  const footerNarrow = () => termWidth() < 90
+
   // In "auto" we auto-reply "once" to every permission.asked event; in "normal"
   // we surface an inline prompt so the user can allow/always/reject each call.
   const [permissionMode, setPermissionMode] = createSignal<"auto" | "normal">(
@@ -3062,11 +3069,12 @@ function Chat(props: { args: Args }) {
         <box flexGrow={1} backgroundColor={C_BG} />
       </Show>
 
-      {/* Agent footer — shows current agent, tab hint, and turn/context stats */}
+      {/* Agent footer — shows current agent, tab hint, and turn/context stats.
+          On narrow terminals it stacks into two rows so nothing is clipped. */}
       <Show when={agents().length > 0}>
         <box
           flexShrink={0}
-          flexDirection="row"
+          flexDirection={footerNarrow() ? "column" : "row"}
           justifyContent="space-between"
           paddingTop={1}
           paddingBottom={1}
@@ -3084,18 +3092,26 @@ function Chat(props: { args: Args }) {
               {agents().length > 1 ? "tab · next agent" : ""}
             </text>
           </box>
-          <box flexDirection="row">
-            <text fg={permissionMode() === "auto" ? C_ACCENT : C_DIM}>
-              {permissionMode() === "auto" ? "◆ auto" : "◇ normal"}
-            </text>
-            <text fg={C_DIM}>{"   shift+tab"}</text>
-            <Show when={activeModelName()}>
-              <text fg={C_ACTIVE}>{"   ● "}</text>
-              <text fg={C_DIM}>{activeModelName()}</text>
-            </Show>
-            <Show when={contextUsage()}>
-              <text fg={C_DIM}>{"   " + contextUsage()}</text>
-            </Show>
+          <box
+            flexDirection="row"
+            justifyContent="space-between"
+            marginTop={footerNarrow() ? 1 : 0}
+          >
+            <box flexDirection="row">
+              <text fg={permissionMode() === "auto" ? C_ACCENT : C_DIM}>
+                {permissionMode() === "auto" ? "◆ auto" : "◇ normal"}
+              </text>
+              <text fg={C_DIM}>{"   shift+tab"}</text>
+            </box>
+            <box flexDirection="row" marginLeft={footerNarrow() ? 0 : 4}>
+              <Show when={activeModelName()}>
+                <text fg={C_ACTIVE}>{"● "}</text>
+                <text fg={C_DIM}>{activeModelName()}</text>
+              </Show>
+              <Show when={contextUsage()}>
+                <text fg={C_DIM}>{"   " + contextUsage()}</text>
+              </Show>
+            </box>
           </box>
         </box>
       </Show>
